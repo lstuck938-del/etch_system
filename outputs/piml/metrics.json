@@ -1,0 +1,96 @@
+{
+  "model": "piml",
+  "design": "Finite-time passivation-aware residual PIML (y = y_physics + y_nn)",
+  "physics_design": "rate_avg(t) = R_ss(P,W,gas,material) + A_material*(1-exp(-t/tau_material))/t; R_ss balances chemical, ion-enhanced, sputter, and CFx passivation terms",
+  "n_rows": 996,
+  "n_groups": 30,
+  "p_peak_per_material": {
+    "Si": 20.0,
+    "SiO2": 7.5,
+    "SiN": 13.0
+  },
+  "lambda_power": 0.2,
+  "lambda_pressure": 0.3,
+  "lambda_nonneg": 0.1,
+  "lambda_residual": 0.0,
+  "epochs": 450,
+  "physics_pretrain_epochs": 120,
+  "lr": 0.001,
+  "hidden": [
+    64,
+    64,
+    32
+  ],
+  "raw_numeric": [
+    "pressure_Pa",
+    "power_W",
+    "time_min",
+    "Ar_frac",
+    "O2_frac",
+    "CF4_frac",
+    "electrode_gap_cm"
+  ],
+  "sample_weight_power": 0.0,
+  "standardization": "per-fold train statistics for OOF; full-data statistics for final scan plots",
+  "per_fold": [
+    {
+      "mae": 4.705562114715576,
+      "rmse": 6.684248089042562,
+      "r2": 0.3733596205711365
+    },
+    {
+      "mae": 5.175702095031738,
+      "rmse": 6.679005584709893,
+      "r2": -0.07590293884277344
+    },
+    {
+      "mae": 2.958690643310547,
+      "rmse": 5.074269306967634,
+      "r2": 0.8803608417510986
+    },
+    {
+      "mae": 2.446974515914917,
+      "rmse": 3.715799266941058,
+      "r2": 0.947246253490448
+    },
+    {
+      "mae": 3.14835524559021,
+      "rmse": 4.649954617186552,
+      "r2": 0.9246456027030945
+    }
+  ],
+  "overall_oof": {
+    "mae": 3.4313807487487793,
+    "rmse": 5.221532388310709,
+    "r2": 0.8726799488067627
+  },
+  "overall_oof_physics_only": {
+    "mae": 13.605652809143066,
+    "rmse": 17.051075222981265,
+    "r2": -0.3577014207839966
+  },
+  "energy_thresholds": {
+    "Si": {
+      "chem": 10.0,
+      "direct": 50.0,
+      "phys": 150.0
+    },
+    "SiO2": {
+      "chem": 50.0,
+      "direct": 70.0,
+      "phys": 100.0
+    },
+    "SiN": {
+      "chem": 30.0,
+      "direct": 60.0,
+      "phys": 130.0
+    }
+  },
+  "physics_terms": [
+    "R_chem",
+    "R_ion_enhanced",
+    "R_sputter",
+    "R_passivation",
+    "time_transient"
+  ]
+}
