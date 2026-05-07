@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
 
 try:
     from .config import OUTPUT_ROOT, TARGET
@@ -36,6 +37,7 @@ MODEL_NAME = "piml"
 NUMERIC = ["pressure_Pa", "power_W", "time_min", "Ar_frac", "O2_frac", "CF4_frac"]
 MATERIALS = ["Si", "SiO2", "SiN"]
 POSITIONS = ["center", "edge"]
+OOF_PATH = OUTPUT_ROOT / MODEL_NAME / "oof.csv"
 
 
 def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
@@ -73,6 +75,83 @@ def _normalize_material(value: Any) -> str:
     return text if text in MATERIALS else "SiO2"
 
 
+def _feature_matrix(df: pd.DataFrame, pred_rate: np.ndarray | None = None) -> np.ndarray:
+    num = df[NUMERIC].astype(float).to_numpy()
+    mat = df["substrate"].map(_normalize_material)
+    pos = df["position"].map(_normalize_position)
+    mat_oh = np.column_stack([(mat == m).astype(float).to_numpy() for m in MATERIALS])
+    pos_edge = (pos == "edge").astype(float).to_numpy()[:, None]
+    if pred_rate is None:
+        pred_rate = np.zeros(len(df), dtype=float)
+    return np.column_stack([num, mat_oh, pos_edge, np.asarray(pred_rate, dtype=float)])
+
+
+def _recipe_feature(recipe: dict[str, Any], pred_rate: float) -> np.ndarray:
+    row = pd.DataFrame([{
+        **{col: float(recipe[col]) for col in NUMERIC},
+        "substrate": recipe["substrate"],
+        "position": recipe["position"],
+    }])
+    return _feature_matrix(row, np.array([pred_rate], dtype=float))
+
+
+def _fit_residual_uncertainty_model(df: pd.DataFrame) -> dict[str, Any]:
+    """Fit an auxiliary residual model from saved PIML OOF predictions.
+
+    This model is separate from PIML: it learns only the magnitude of the OOF
+    residual and is used to size prediction intervals.
+    """
+    if not OOF_PATH.exists():
+        return {"available": False, "reason": f"missing {OOF_PATH}"}
+
+    oof = pd.read_csv(OOF_PATH)
+    pred_col = f"pred_{MODEL_NAME}"
+    required = {"substrate", "position", TARGET, pred_col}
+    if not required.issubset(oof.columns):
+        return {"available": False, "reason": "oof.csv missing columns for residual model"}
+
+    train = oof.dropna(subset=list(required)).copy()
+    if len(train) != len(df):
+        return {"available": False, "reason": "oof.csv row count does not match processed data"}
+    for col in NUMERIC:
+        train[col] = df[col].to_numpy()
+    train["substrate"] = train["substrate"].map(_normalize_material)
+    train["position"] = train["position"].map(_normalize_position)
+    pred = train[pred_col].astype(float).to_numpy()
+    residual = train[TARGET].astype(float).to_numpy() - pred
+    abs_residual = np.abs(residual)
+
+    x = _feature_matrix(train, pred)
+    y = np.log1p(abs_residual)
+    model = RandomForestRegressor(
+        n_estimators=240,
+        min_samples_leaf=10,
+        random_state=20260896,
+        n_jobs=1,
+    )
+    model.fit(x, y)
+
+    pred_abs = np.expm1(model.predict(x))
+    pred_abs = np.clip(pred_abs, 1e-6, None)
+    normalized_error = abs_residual / pred_abs
+    q95 = float(np.quantile(normalized_error, 0.95))
+    mean_abs = float(abs_residual.mean())
+    by_material = {
+        m: float(abs_residual[train["substrate"].to_numpy() == m].mean())
+        for m in MATERIALS
+        if (train["substrate"].to_numpy() == m).any()
+    }
+    return {
+        "available": True,
+        "model": model,
+        "calibration_q95": max(q95, 1.0),
+        "mean_abs_residual": mean_abs,
+        "mean_abs_residual_by_material": by_material,
+        "n_rows": int(len(train)),
+        "target": "log1p(abs(y_true - pred_piml_oof))",
+    }
+
+
 @lru_cache(maxsize=1)
 def app_state() -> dict[str, Any]:
     df = load_long()
@@ -90,10 +169,7 @@ def app_state() -> dict[str, Any]:
     pos = df["position"].to_numpy()
     y = df[TARGET].astype(float).to_numpy()
     metrics = _read_json(OUTPUT_ROOT / MODEL_NAME / "metrics.json", {})
-    ci = (
-        metrics.get("ci", {})
-        .get("quantiles_per_material", {})
-    )
+    uncertainty = _fit_residual_uncertainty_model(df)
 
     domain: dict[str, dict[str, float]] = {}
     for col in NUMERIC:
@@ -112,7 +188,7 @@ def app_state() -> dict[str, Any]:
         "pos": pos,
         "y": y,
         "metrics": metrics,
-        "ci": ci,
+        "uncertainty": uncertainty,
         "domain": domain,
     }
 
@@ -176,6 +252,45 @@ def _domain_report(recipe: dict[str, Any], min_distance: float) -> dict[str, Any
     }
 
 
+def _residual_interval(recipe: dict[str, Any], rate: float, domain: dict[str, Any]) -> dict[str, Any]:
+    uncertainty = app_state()["uncertainty"]
+    if uncertainty.get("available"):
+        x = _recipe_feature(recipe, rate)
+        pred_abs = float(np.expm1(uncertainty["model"].predict(x)[0]))
+        pred_abs = max(pred_abs, 1e-6)
+        half_width = pred_abs * float(uncertainty["calibration_q95"])
+        half_width *= 1.0 + 0.35 * float(domain.get("extrapolation", 0.0))
+        return {
+            "available": True,
+            "method": "auxiliary residual uncertainty model",
+            "target": uncertainty["target"],
+            "predicted_abs_residual": pred_abs,
+            "calibration_q95": float(uncertainty["calibration_q95"]),
+            "rate_half_width": half_width,
+            "n_rows": int(uncertainty["n_rows"]),
+        }
+
+    material = recipe["substrate"]
+    fallback_abs = float(
+        uncertainty.get("mean_abs_residual_by_material", {}).get(
+            material,
+            uncertainty.get("mean_abs_residual", 0.0),
+        )
+    )
+    if fallback_abs <= 0.0:
+        fallback_abs = 0.10 * max(rate, 1.0)
+    half_width = 1.96 * fallback_abs * (1.0 + float(domain.get("extrapolation", 0.0)))
+    return {
+        "available": False,
+        "method": "fallback mean absolute residual",
+        "reason": uncertainty.get("reason", "residual model unavailable"),
+        "predicted_abs_residual": fallback_abs,
+        "calibration_q95": 1.96,
+        "rate_half_width": half_width,
+        "n_rows": 0,
+    }
+
+
 def predict_recipe(recipe: dict[str, Any], k: int = 24) -> dict[str, Any]:
     state = app_state()
     d = _distance(recipe)
@@ -185,22 +300,17 @@ def predict_recipe(recipe: dict[str, Any], k: int = 24) -> dict[str, Any]:
     weights = 1.0 / np.square(local_d + 0.12)
     rate = float(np.average(state["y"][idx], weights=weights))
 
-    material = recipe["substrate"]
-    quant = state["ci"].get(material, {})
-    if quant:
-        rate_lo = max(0.0, rate + float(quant.get("q_lo", 0.0)))
-        rate_hi = max(rate_lo, rate + float(quant.get("q_hi", 0.0)))
-    else:
-        local_std = float(np.sqrt(np.average((state["y"][idx] - rate) ** 2, weights=weights)))
-        rate_lo = max(0.0, rate - 1.96 * local_std)
-        rate_hi = rate + 1.96 * local_std
-
     time_min = max(0.0, float(recipe["time_min"]))
     depth = rate * time_min
+    domain = _domain_report(recipe, float(local_d.min()))
+    uncertainty = _residual_interval(recipe, rate, domain)
+    rate_half_width = float(uncertainty["rate_half_width"])
+    rate_lo = max(0.0, rate - rate_half_width)
+    rate_hi = rate + rate_half_width
     depth_lo = rate_lo * time_min
     depth_hi = rate_hi * time_min
-    domain = _domain_report(recipe, float(local_d.min()))
 
+    material = recipe["substrate"]
     pr_factor = {"Si": 0.85, "SiO2": 1.15, "SiN": 1.0}.get(material, 1.0)
     selectivity = max(0.1, rate / 8.0 * pr_factor)
 
@@ -221,6 +331,7 @@ def predict_recipe(recipe: dict[str, Any], k: int = 24) -> dict[str, Any]:
         "depth_ci95": [depth_lo, depth_hi],
         "selectivity": selectivity,
         "domain": domain,
+        "uncertainty": uncertainty,
         "metrics": state["metrics"].get("overall_oof", {}),
         "neighbors": [
             {
