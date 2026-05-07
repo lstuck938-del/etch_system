@@ -86,10 +86,19 @@ def cv_split(df: pd.DataFrame, y: np.ndarray, groups: np.ndarray) -> list[tuple[
     return list(splitter.split(df, labels, groups))
 
 
-def save_oof_csv(df: pd.DataFrame, oof: np.ndarray, model_name: str, out_dir: Path) -> None:
+def save_oof_csv(
+    df: pd.DataFrame,
+    oof: np.ndarray,
+    model_name: str,
+    out_dir: Path,
+    extra_cols: dict[str, np.ndarray] | None = None,
+) -> None:
     keep_cols = GROUP_KEYS + ["position", "time_min", "etch_depth_nm", TARGET]
     out = df[keep_cols].copy()
     out[f"pred_{model_name}"] = oof
+    if extra_cols:
+        for k, v in extra_cols.items():
+            out[k] = v
     out.to_csv(out_dir / "oof.csv", index=False, encoding="utf-8-sig")
 
 

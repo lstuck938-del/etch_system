@@ -92,5 +92,30 @@
     "R_sputter",
     "R_passivation",
     "time_transient"
-  ]
+  ],
+  "ci": {
+    "method": "per-material empirical quantiles of OOF residuals (post-hoc; model unchanged)",
+    "alpha": 0.05,
+    "level": 0.95,
+    "quantiles_per_material": {
+      "Si": {
+        "q_lo": -7.998263263702393,
+        "q_hi": 14.76179575920105,
+        "n": 262
+      },
+      "SiO2": {
+        "q_lo": -6.196814298629761,
+        "q_hi": 12.715154647827148,
+        "n": 376
+      },
+      "SiN": {
+        "q_lo": -15.03892240524292,
+        "q_hi": 10.624560451507568,
+        "n": 358
+      }
+    },
+    "empirical_coverage": 0.9477911646586346,
+    "mean_width_nm_per_min": 20.032678380069964,
+    "lower_clamped_at_zero": true
+  }
 }

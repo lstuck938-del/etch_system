@@ -1,0 +1,1449 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>PIML-CCP 刻蚀预测系统</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:        #f5f4ef;          /* warm paper */
+    --panel:     #ffffff;
+    --ink:       #14171c;
+    --ink-2:     #3a4150;
+    --ink-3:     #6b7280;
+    --line:      #e3e1d8;
+    --line-2:    #d6d4c9;
+    --rail:      #1b1f27;          /* sidebar */
+    --rail-ink:  #c9ccd2;
+    --rail-ink-2:#7d828d;
+    --accent:    oklch(0.52 0.13 252);   /* deep indigo */
+    --accent-2:  oklch(0.52 0.13 152);   /* lab green */
+    --accent-3:  oklch(0.62 0.13 60);    /* amber */
+    --danger:    oklch(0.55 0.16 25);
+    --grid:      #ecebe3;
+    --shadow:    0 1px 0 rgba(20,23,28,.04), 0 1px 2px rgba(20,23,28,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter','IBM Plex Sans',system-ui,sans-serif;
+    font-size:13px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace; font-feature-settings:"tnum","zero"}
+  .num{font-family:'IBM Plex Mono',ui-monospace,monospace; font-feature-settings:"tnum","zero"; font-variant-numeric:tabular-nums}
+  button{font:inherit; color:inherit}
+
+  /* layout */
+  .app{display:grid; grid-template-columns:240px 1fr; min-height:100vh}
+
+  /* sidebar */
+  .rail{
+    background:var(--rail); color:var(--rail-ink);
+    border-right:1px solid #0d1015;
+    display:flex; flex-direction:column;
+    position:sticky; top:0; height:100vh;
+  }
+  .rail .brand{
+    padding:18px 18px 14px; border-bottom:1px solid #262b35;
+  }
+  .rail .brand .mark{
+    display:flex; align-items:center; gap:10px;
+    font-family:'IBM Plex Sans'; font-weight:600; font-size:13px; color:#fff;
+    letter-spacing:.02em;
+  }
+  .rail .brand .mark .glyph{
+    width:26px; height:26px; border-radius:6px;
+    background:linear-gradient(135deg, oklch(0.62 0.16 252), oklch(0.45 0.13 252));
+    position:relative; flex:none;
+  }
+  .rail .brand .mark .glyph::before{
+    content:""; position:absolute; inset:6px;
+    border:1.5px solid rgba(255,255,255,.85); border-radius:2px;
+  }
+  .rail .brand .mark .glyph::after{
+    content:""; position:absolute; left:50%; top:6px; bottom:6px; width:1.5px;
+    background:rgba(255,255,255,.85);
+  }
+  .rail .brand .sub{
+    margin-top:6px; font-size:11px; color:var(--rail-ink-2); font-family:'IBM Plex Mono';
+    letter-spacing:.04em;
+  }
+  .rail nav{padding:14px 10px; flex:1; overflow:auto}
+  .rail .group-label{
+    font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.14em;
+    color:#5a6070; text-transform:uppercase;
+    padding:14px 10px 6px;
+  }
+  .rail a{
+    display:flex; align-items:center; gap:10px;
+    padding:8px 10px; border-radius:6px;
+    color:var(--rail-ink); text-decoration:none;
+    font-size:13px;
+    cursor:pointer; user-select:none;
+  }
+  .rail a:hover{background:#22262f; color:#fff}
+  .rail a.active{background:#2a3140; color:#fff; box-shadow:inset 2px 0 0 var(--accent) }
+  .rail a .ic{
+    width:16px; height:16px; flex:none; opacity:.85;
+  }
+  .rail a.active .ic{opacity:1}
+  .rail .foot{
+    padding:12px 16px; border-top:1px solid #262b35;
+    font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--rail-ink-2);
+    display:flex; justify-content:space-between; gap:8px;
+  }
+  .rail .foot .dot{
+    display:inline-block; width:6px; height:6px; border-radius:50%;
+    background:oklch(0.7 0.16 152); margin-right:6px;
+    box-shadow:0 0 0 3px oklch(0.7 0.16 152 / .15);
+  }
+
+  /* main */
+  .main{min-width:0}
+  .topbar{
+    height:54px; padding:0 28px;
+    border-bottom:1px solid var(--line);
+    background:var(--bg);
+    display:flex; align-items:center; gap:18px;
+    position:sticky; top:0; z-index:5;
+  }
+  .crumbs{font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--ink-3); letter-spacing:.04em}
+  .crumbs b{color:var(--ink-2); font-weight:500}
+  .topbar .right{margin-left:auto; display:flex; align-items:center; gap:14px; font-size:12px; color:var(--ink-3)}
+  .pill{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:3px 8px; border:1px solid var(--line-2); border-radius:999px;
+    font-family:'IBM Plex Mono'; font-size:11px; color:var(--ink-2); background:#fff;
+  }
+  .pill .dot{width:6px; height:6px; border-radius:50%; background:var(--accent-2)}
+
+  .page{padding:24px 28px 80px}
+
+  /* generic */
+  h1.title{
+    font-family:'IBM Plex Sans'; font-weight:600; font-size:20px;
+    margin:0; letter-spacing:-.005em;
+  }
+  .subtitle{color:var(--ink-3); font-size:12.5px; margin-top:4px}
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    box-shadow:var(--shadow);
+  }
+  .panel-h{
+    padding:14px 16px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:10px;
+  }
+  .panel-h .label{
+    font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.14em;
+    color:var(--ink-3); text-transform:uppercase;
+  }
+  .panel-h h2{
+    margin:0; font-family:'IBM Plex Sans'; font-weight:600; font-size:14px;
+  }
+  .panel-h .right{margin-left:auto; display:flex; gap:8px; align-items:center}
+  .panel-b{padding:16px}
+
+  .grid-2{display:grid; grid-template-columns:380px 1fr; gap:20px}
+  @media (max-width:1180px){ .grid-2{grid-template-columns:1fr} }
+
+  /* form */
+  .field{display:flex; flex-direction:column; gap:6px; margin-bottom:14px}
+  .field .lbl{
+    display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  }
+  .field .lbl .name{font-size:12.5px; color:var(--ink-2); font-weight:500}
+  .field .lbl .unit{
+    font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--ink-3);
+    letter-spacing:.04em;
+  }
+  .field .lbl .val{
+    font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink);
+    background:#f1efe7; border:1px solid var(--line-2); padding:1px 6px; border-radius:4px;
+    min-width:54px; width:64px; text-align:right;
+    -moz-appearance:textfield;
+    outline:none; transition:border-color .15s, background .15s;
+  }
+  .field .lbl .val:hover{border-color:var(--ink-3)}
+  .field .lbl .val:focus{
+    background:#fff; border-color:var(--accent);
+    box-shadow:0 0 0 3px oklch(0.52 0.13 252 / .15);
+  }
+  .field .lbl .val::-webkit-outer-spin-button,
+  .field .lbl .val::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0 }
+  .field .lbl .val.bad{
+    border-color:var(--danger); color:var(--danger);
+    background:oklch(0.97 0.02 25);
+  }
+  .field input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:18px; background:transparent; cursor:pointer;
+  }
+  .field input[type=range]::-webkit-slider-runnable-track{
+    height:4px; background:linear-gradient(to right, var(--accent) var(--p,50%), var(--line-2) var(--p,50%));
+    border-radius:2px;
+  }
+  .field input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:14px; height:14px; border-radius:50%;
+    background:#fff; border:2px solid var(--accent);
+    margin-top:-5px; box-shadow:0 1px 2px rgba(0,0,0,.15);
+  }
+  .field input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%;
+    background:#fff; border:2px solid var(--accent);
+  }
+  .field .ticks{
+    display:flex; justify-content:space-between;
+    font-family:'IBM Plex Mono'; font-size:10px; color:var(--ink-3);
+    margin-top:-2px;
+  }
+  .row-2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .selectish{
+    display:flex; gap:0; border:1px solid var(--line-2); border-radius:6px; overflow:hidden;
+    background:#fff;
+  }
+  .selectish button{
+    flex:1; padding:7px 10px; background:#fff; border:0; border-right:1px solid var(--line);
+    font-size:12px; cursor:pointer; color:var(--ink-2);
+    font-family:'IBM Plex Mono'; letter-spacing:.02em;
+  }
+  .selectish button:last-child{border-right:0}
+  .selectish button.on{
+    background:var(--accent); color:#fff;
+  }
+  .gas-mix{
+    border:1px solid var(--line-2); border-radius:8px; padding:12px;
+    background:#faf9f4;
+  }
+  .gas-mix .head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-bottom:10px;
+  }
+  .gas-mix .head .t{font-size:12.5px; color:var(--ink-2); font-weight:500}
+  .gas-mix .head .sum{
+    font-family:'IBM Plex Mono'; font-size:11px; color:var(--ink-3);
+  }
+  .gas-mix .head .sum.bad{color:var(--danger)}
+  .gas-bar{
+    height:8px; border-radius:4px; overflow:hidden; display:flex;
+    background:var(--line); margin:6px 0 10px;
+  }
+  .gas-bar > div{height:100%}
+
+  .btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:8px 14px; border-radius:6px; font-size:12.5px; font-weight:500;
+    border:1px solid var(--line-2); background:#fff; color:var(--ink); cursor:pointer;
+  }
+  .btn:hover{background:#faf9f4}
+  .btn.primary{
+    background:var(--accent); color:#fff; border-color:var(--accent);
+  }
+  .btn.primary:hover{filter:brightness(1.05)}
+
+  /* result cards */
+  .kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:12px}
+  .kpi{
+    background:#fff; border:1px solid var(--line); border-radius:8px;
+    padding:14px 14px;
+  }
+  .kpi .lbl{
+    font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.12em;
+    color:var(--ink-3); text-transform:uppercase;
+  }
+  .kpi .val{
+    font-family:'IBM Plex Mono'; font-weight:600; font-size:24px;
+    color:var(--ink); margin-top:6px; letter-spacing:-.01em;
+  }
+  .kpi .val small{font-weight:500; font-size:13px; color:var(--ink-3); margin-left:4px}
+  .kpi .ci{
+    margin-top:6px;
+    font-family:'IBM Plex Mono'; font-size:11px; color:var(--ink-3);
+  }
+  .kpi .ci b{color:var(--ink-2); font-weight:500}
+  .kpi.accent{background:linear-gradient(180deg,#fff,oklch(0.98 0.012 252)); border-color:oklch(0.85 0.04 252)}
+
+  /* chart */
+  .chart-wrap{display:grid; grid-template-columns:1fr; gap:14px}
+  .chart-tabs{
+    display:flex; gap:4px; flex-wrap:wrap;
+    border:1px solid var(--line-2); border-radius:8px; padding:3px; background:#fff;
+  }
+  .chart-tabs button{
+    padding:6px 12px; border-radius:5px; border:0; background:transparent; cursor:pointer;
+    font-size:12px; color:var(--ink-2); font-family:'IBM Plex Mono'; letter-spacing:.02em;
+  }
+  .chart-tabs button.on{background:var(--ink); color:#fff}
+  .chart-svg{width:100%; height:380px; display:block; background:#fff;
+    border:1px solid var(--line); border-radius:8px;
+  }
+  .chart-meta{
+    display:flex; gap:18px; flex-wrap:wrap; align-items:center;
+    font-family:'IBM Plex Mono'; font-size:11px; color:var(--ink-3);
+  }
+  .lg{display:inline-flex; align-items:center; gap:6px}
+  .lg .sw{width:14px; height:3px; border-radius:2px; background:var(--accent)}
+  .lg .sw.band{background:oklch(0.85 0.05 252); height:8px; border-radius:2px}
+  .lg .sw.dot{
+    width:8px; height:8px; border-radius:50%; background:var(--accent-3);
+    box-shadow:0 0 0 3px oklch(0.62 0.13 60 / .2);
+  }
+
+  /* OVERVIEW */
+  .ov-grid{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px;
+  }
+  .stat{
+    background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px;
+  }
+  .stat .lbl{font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.12em; color:var(--ink-3); text-transform:uppercase}
+  .stat .val{font-family:'IBM Plex Mono'; font-weight:600; font-size:22px; margin-top:6px}
+  .stat .delta{font-family:'IBM Plex Mono'; font-size:11px; color:var(--accent-2); margin-top:2px}
+  .stat .delta.bad{color:var(--danger)}
+  .ov-cols{display:grid; grid-template-columns:1.4fr 1fr; gap:20px}
+  @media (max-width:1100px){.ov-grid{grid-template-columns:repeat(2,1fr)} .ov-cols{grid-template-columns:1fr}}
+
+  /* PIML diagram */
+  .piml{ padding:20px; display:flex; flex-direction:column; gap:14px }
+  .piml .row{ display:grid; gap:14px; align-items:stretch }
+  .piml .row.top{ grid-template-columns:1.05fr 1.6fr 1.05fr }
+  .piml .blk{
+    border:1px solid var(--line-2); border-radius:8px; padding:12px 14px;
+    background:#faf9f4; min-height:90px; position:relative;
+  }
+  .piml .blk.input{ background:oklch(0.985 0.012 252); border-color:oklch(0.85 0.04 252) }
+  .piml .blk.net  { background:oklch(0.985 0.012 152); border-color:oklch(0.82 0.05 152) }
+  .piml .blk.out  { background:oklch(0.985 0.012 300); border-color:oklch(0.82 0.05 300) }
+  .piml .blk.phys { background:oklch(0.985 0.022 80);  border-color:oklch(0.85 0.05 80)  }
+  .piml .blk.loss { background:oklch(0.985 0.018 25);  border-color:oklch(0.85 0.05 25)  }
+  .piml .blk.train{ background:#f4f3ee; border-color:var(--line-2) }
+  .piml .blk .t{
+    font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.12em;
+    color:var(--ink-3); text-transform:uppercase;
+  }
+  .piml .blk .h{ font-family:'IBM Plex Sans'; font-weight:600; font-size:13px; margin-top:6px; color:var(--ink) }
+  .piml .blk .d{ font-size:11.5px; color:var(--ink-2); margin-top:4px; line-height:1.55 }
+  .piml .iolist{ display:flex; flex-direction:column; gap:6px; margin-top:10px }
+  .piml .iolist .it{
+    display:flex; align-items:center; gap:8px;
+    font-size:11.5px; color:var(--ink-2);
+    padding:4px 8px; background:#fff; border:1px solid var(--line);
+    border-radius:5px;
+  }
+  .piml .iolist .it .k{
+    font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--ink-3);
+    min-width:54px;
+  }
+  .piml .iolist .it .v{ font-family:'IBM Plex Sans'; font-weight:500 }
+  .piml .net-vis{
+    flex:1; display:flex; align-items:center; justify-content:center;
+    margin-top:8px; min-height:120px;
+  }
+  .piml .net-vis svg{ width:100%; height:130px; display:block }
+  .piml .constraints{
+    display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:10px;
+  }
+  .piml .cst{
+    background:#fff; border:1px solid var(--line); border-radius:6px;
+    padding:8px 10px;
+  }
+  .piml .cst .ic{ display:block; margin-bottom:4px; color:var(--accent) }
+  .piml .cst .nm{
+    font-family:'IBM Plex Sans'; font-weight:600; font-size:12px; color:var(--ink);
+  }
+  .piml .cst .ds{ font-size:10.5px; color:var(--ink-3); margin-top:2px; line-height:1.45 }
+  .piml .row.bot{ grid-template-columns:1.6fr 1fr; gap:14px }
+  .piml .lossbox{
+    display:flex; align-items:stretch; gap:10px; margin-top:10px;
+  }
+  .piml .lossbox .pill-l{
+    flex:1; padding:10px 12px; border-radius:6px;
+    background:#fff; border:1px solid oklch(0.82 0.06 252);
+  }
+  .piml .lossbox .pill-l.phys{ border-color:oklch(0.82 0.06 80) }
+  .piml .lossbox .pill-l .nm{
+    font-family:'IBM Plex Sans'; font-weight:600; font-size:12px;
+  }
+  .piml .lossbox .pill-l .ds{
+    font-size:10.5px; color:var(--ink-3); margin-top:2px;
+  }
+  .piml .lossbox .plus{
+    display:flex; align-items:center; font-family:'IBM Plex Mono';
+    font-size:18px; color:var(--ink-3);
+  }
+  .piml .note{
+    margin-top:6px; padding:10px 12px;
+    background:oklch(0.985 0.012 252); border:1px solid oklch(0.88 0.03 252);
+    border-radius:6px; font-size:11.5px; color:var(--ink-2); line-height:1.55;
+    display:flex; gap:8px; align-items:flex-start;
+  }
+  .piml .note .lb{ color:var(--accent); flex:none }
+  .piml .arrow{
+    position:absolute; top:50%; right:-14px; width:14px; height:1px;
+    background:var(--ink-3); transform:translateY(-50%);
+  }
+  .piml .arrow::after{
+    content:''; position:absolute; right:-1px; top:-3px;
+    border:3px solid transparent; border-left-color:var(--ink-3);
+  }
+
+  .runs th, .runs td{
+    text-align:left; padding:8px 10px; font-size:12px;
+    border-bottom:1px solid var(--line);
+  }
+  .runs th{
+    font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.1em;
+    color:var(--ink-3); font-weight:500; text-transform:uppercase;
+    background:#faf9f4;
+  }
+  .runs td.num{font-family:'IBM Plex Mono'}
+  .runs tr:hover td{background:#fbfaf5}
+  .badge{
+    display:inline-block; padding:2px 7px; border-radius:999px;
+    font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.04em;
+  }
+  .badge.ok{background:oklch(0.95 0.03 152); color:oklch(0.4 0.13 152)}
+  .badge.warn{background:oklch(0.95 0.04 80); color:oklch(0.45 0.12 60)}
+  .badge.err{background:oklch(0.95 0.03 25); color:oklch(0.45 0.14 25)}
+
+  /* tag */
+  .tag{
+    display:inline-flex; align-items:center; gap:4px;
+    padding:1.5px 6px; border-radius:4px;
+    background:#f1efe7; border:1px solid var(--line-2);
+    font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--ink-2); letter-spacing:.04em;
+  }
+
+  .input-tile{
+    background:#faf9f4; border:1px solid var(--line); border-radius:5px;
+    padding:4px 8px;
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  .input-tile .lbl{
+    font-family:'IBM Plex Mono'; font-size:10px; letter-spacing:.08em;
+    color:var(--ink-3); text-transform:uppercase;
+  }
+  .input-tile .val{
+    font-family:'IBM Plex Mono'; font-weight:600; font-size:12px;
+    color:var(--ink);
+  }
+  .input-tile .val small{font-weight:500; font-size:10px; color:var(--ink-3); margin-left:2px}
+
+  /* hide one page at a time */
+  .view{display:none}
+  .view.on{display:block}
+
+  /* tooltip */
+  .tip{
+    position:fixed; z-index:50; pointer-events:none;
+    background:var(--ink); color:#fff; padding:8px 10px; border-radius:6px;
+    font-family:'IBM Plex Mono'; font-size:11px; line-height:1.45;
+    box-shadow:0 6px 20px rgba(0,0,0,.18);
+    transform:translate(-50%, calc(-100% - 8px));
+    white-space:nowrap; opacity:0; transition:opacity .12s;
+  }
+  .tip.on{opacity:1}
+  .tip b{color:oklch(0.85 0.08 60); font-weight:500}
+
+  /* small caps utility */
+  .sc{font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.14em; color:var(--ink-3); text-transform:uppercase}
+
+  /* equation */
+  .eqn{
+    font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-2);
+    background:#faf9f4; border:1px solid var(--line); border-radius:6px;
+    padding:10px 12px; line-height:1.7;
+  }
+  .eqn .var{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ============== SIDEBAR ============== -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="mark">
+        <div class="glyph"></div>
+        <div>
+          PIML&nbsp;·&nbsp;CCP&nbsp;Etch
+          <div class="sub">v0.4.2 — research build</div>
+        </div>
+      </div>
+    </div>
+    <nav id="nav">
+      <div class="group-label">Workspace</div>
+      <a data-view="overview" class="active">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+        系统概览
+      </a>
+      <a data-view="params">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="3" y1="4" x2="13" y2="4"/><circle cx="6" cy="4" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="8" x2="13" y2="8"/><circle cx="10" cy="8" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="13" y2="12"/><circle cx="7" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
+        参数输入
+      </a>
+      <a data-view="results">
+        <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 12 L6 7 L9 10 L14 3"/><circle cx="14" cy="3" r="1.2" fill="currentColor"/></svg>
+        预测结果
+      </a>
+
+    </nav>
+    <div class="foot">
+          <span><span class="dot"></span><span id="backend-status">backend pending</span></span>
+          <span>CPU</span>
+    </div>
+  </aside>
+
+  <!-- ============== MAIN ============== -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumbs" id="crumbs"><b>PIML-CCP</b>&nbsp;/&nbsp;系统概览</div>
+      <div class="right">
+        <span class="pill"><span class="dot"></span>PIML-v0.4.2</span>
+        <span class="mono" style="font-size:11px">2026-05-06 · 14:58 CST</span>
+      </div>
+    </div>
+
+    <!-- ============ OVERVIEW VIEW ============ -->
+    <section class="view on" id="view-overview">
+      <div class="page">
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px">
+          <div>
+            <h1 class="title">基于 PIML 的 CCP 刻蚀预测系统</h1>
+            <div class="subtitle">物理信息神经网络 · 容性耦合等离子体刻蚀深度与速率代理模型</div>
+          </div>
+          <button class="btn primary" onclick="showView('params')">
+            进入预测
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6h6M6 3l3 3-3 3"/></svg>
+          </button>
+        </div>
+
+        <div class="ov-grid">
+          <div class="stat">
+            <div class="lbl">Training samples</div>
+            <div class="val">996</div>
+          </div>
+          <div class="stat">
+            <div class="lbl">OOF R²&nbsp;·&nbsp;Etch rate</div>
+            <div class="val">0.873</div>
+          </div>
+          <div class="stat">
+            <div class="lbl">MAE&nbsp;·&nbsp;Rate</div>
+            <div class="val">3.43 <small>nm/min</small></div>
+          </div>
+          <div class="stat">
+            <div class="lbl">RMSE&nbsp;·&nbsp;Rate</div>
+            <div class="val">5.22 <small>nm/min</small></div>
+          </div>
+        </div>
+
+        <div class="ov-cols" style="grid-template-columns:1fr">
+          <div class="panel">
+            <div class="panel-h">
+              <div class="label">Architecture</div>
+              <h2>PIML 模型结构</h2>
+              <div class="right"><span class="tag">MLP&nbsp;8-128-128-64-2</span><span class="tag">PINN loss</span></div>
+            </div>
+            <div class="piml">
+
+              <!-- ROW 1: Inputs -> Network -> Outputs -->
+              <div class="row top">
+                <div class="blk input">
+                  <div class="t">Inputs · 工艺条件</div>
+                  <div class="h">8 维工艺参数</div>
+                  <div class="iolist">
+                    <div class="it"><span class="k">气压</span><span class="v">p (Pa)</span></div>
+                    <div class="it"><span class="k">功率</span><span class="v">P (W)</span></div>
+                    <div class="it"><span class="k">气体比例</span><span class="v">Ar / O₂ / CF₄</span></div>
+                    <div class="it"><span class="k">衬底材料</span><span class="v">Si / SiO₂ / SiN</span></div>
+                    <div class="it"><span class="k">刻蚀时间</span><span class="v">t (min)</span></div>
+                    <div class="it"><span class="k">位置</span><span class="v">中心 / 边缘</span></div>
+                  </div>
+                </div>
+                <div class="blk net">
+                  <div class="t">PIML Model · 物理信息神经网络</div>
+                  <div class="h">输入层 · 隐藏层（全连接） · 输出层</div>
+                  <div class="net-vis" id="netvis"></div>
+                </div>
+                <div class="blk out">
+                  <div class="t">Outputs · 预测量</div>
+                  <div class="h">刻蚀深度 D̂ · 刻蚀速率 R̂</div>
+                  <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px">
+                    <div style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 10px">
+                      <div style="font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--ink-3)">D (nm)</div>
+                      <svg viewBox="0 0 140 38" style="width:100%; height:38px; margin-top:2px">
+                        <path d="M4 32 C 30 18, 60 10, 136 6" fill="none" stroke="oklch(0.45 0.13 300)" stroke-width="1.6"/>
+                        <line x1="4" y1="34" x2="136" y2="34" stroke="var(--ink-3)" stroke-width=".7"/>
+                        <line x1="4" y1="34" x2="4" y2="4" stroke="var(--ink-3)" stroke-width=".7"/>
+                        <text x="132" y="32" font-family="IBM Plex Mono" font-size="7" fill="var(--ink-3)">t</text>
+                      </svg>
+                    </div>
+                    <div style="background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 10px">
+                      <div style="font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--ink-3)">R (nm/min)</div>
+                      <svg viewBox="0 0 140 38" style="width:100%; height:38px; margin-top:2px">
+                        <path d="M4 32 C 18 10, 40 6, 70 14 S 110 32, 136 32" fill="none" stroke="oklch(0.45 0.13 300)" stroke-width="1.6"/>
+                        <line x1="4" y1="34" x2="136" y2="34" stroke="var(--ink-3)" stroke-width=".7"/>
+                        <line x1="4" y1="34" x2="4" y2="4" stroke="var(--ink-3)" stroke-width=".7"/>
+                        <text x="132" y="32" font-family="IBM Plex Mono" font-size="7" fill="var(--ink-3)">t</text>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ROW 2: Physics constraints -->
+              <div class="blk phys">
+                <div class="t">Physics-informed Soft Constraints · 物理软约束</div>
+                <div class="constraints">
+                  <div class="cst">
+                    <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 14 L8 8 L12 11 L20 3"/><path d="M16 3 L20 3 L20 7"/></svg>
+                    <div class="nm">功率单调约束</div>
+                    <div class="ds">输出随功率单调不减</div>
+                  </div>
+                  <div class="cst">
+                    <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 14 C 6 14, 8 3, 11 3 C 14 3, 16 14, 20 14"/></svg>
+                    <div class="nm">气压单峰约束</div>
+                    <div class="ds">输出随气压呈单峰特性</div>
+                  </div>
+                  <div class="cst">
+                    <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3 C 6 3, 8 14, 20 14"/></svg>
+                    <div class="nm">时间渐变约束</div>
+                    <div class="ds">深度单调，速率先升后降</div>
+                  </div>
+                  <div class="cst">
+                    <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11 2 L11 14 M5 14 L17 14 M5 8 L11 2 L17 8 M3 11 H7 M15 11 H19"/></svg>
+                    <div class="nm">量纲与范围</div>
+                    <div class="ds">输出在物理合理区间</div>
+                  </div>
+                  <div class="cst">
+                    <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="3" width="7" height="5" rx="1"/><rect x="13" y="3" width="7" height="5" rx="1"/><rect x="2" y="10" width="7" height="3" rx="1"/><rect x="13" y="10" width="7" height="3" rx="1"/></svg>
+                    <div class="nm">其他约束</div>
+                    <div class="ds">边界条件、经验规律等</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ROW 3: Loss + Training -->
+              <div class="row bot">
+                <div class="blk loss">
+                  <div class="t">Loss · 损失函数</div>
+                  <div class="lossbox">
+                    <div class="pill-l">
+                      <div class="nm">数据驱动损失 ℒ<sub>data</sub></div>
+                      <div class="ds">拟合实验数据</div>
+                    </div>
+                    <div class="plus">+</div>
+                    <div class="pill-l phys">
+                      <div class="nm">物理约束损失 ℒ<sub>phys</sub></div>
+                      <div class="ds">满足物理软约束</div>
+                    </div>
+                  </div>
+                  <div class="eqn" style="margin-top:10px">
+                    ℒ = ℒ<sub>data</sub> &nbsp;+&nbsp; λ<sub>1</sub>·ℒ<sub>power</sub> &nbsp;+&nbsp; λ<sub>2</sub>·ℒ<sub>pressure</sub> &nbsp;+&nbsp; λ<sub>3</sub>·ℒ<sub>nonneg</sub> &nbsp;+&nbsp; λ<sub>4</sub>·ℒ<sub>res</sub>
+                  </div>
+                </div>
+                <div class="blk train">
+                  <div class="t">Training · 模型训练</div>
+                  <div class="h">最小化总损失，更新模型参数</div>
+                  <div class="d">Adam optimizer · MC-dropout 不确定度估计 · 95% 置信区间输出</div>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px">
+                    <span class="tag">epoch 4,800</span>
+                    <span class="tag">lr 1e-3 → 1e-4</span>
+                    <span class="tag">batch 64</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="note">
+                <svg class="lb" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1.5 A 4 4 0 0 1 9.5 9 V 11 H 4.5 V 9 A 4 4 0 0 1 7 1.5 Z"/><path d="M5.5 12.5 H 8.5"/></svg>
+                <span>说明：通过在损失函数中引入物理软约束，将物理规律融入数据驱动模型，提升预测的准确性、泛化性与物理一致性。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PARAMS VIEW ============ -->
+    <section class="view" id="view-params">
+      <div class="page">
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px">
+          <div>
+            <h1 class="title">工艺参数输入</h1>
+            <div class="subtitle">配置 CCP 刻蚀工艺条件 → 切换到 <b style="color:var(--ink-2)">预测结果</b> 查看深度、速率与置信区间</div>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button class="btn" onclick="resetParams()">重置</button>
+            <button class="btn primary" onclick="runPredict(true); showView('results')">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 2v8l7-4z" fill="currentColor"/></svg>
+              运行预测
+            </button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:minmax(0,460px) 1fr; gap:20px; align-items:start">
+          <div class="panel">
+            <div class="panel-h">
+              <div class="label">Inputs</div>
+              <h2>工艺参数</h2>
+            </div>
+            <div class="panel-b" id="form"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">
+              <div class="label">Summary</div>
+              <h2>当前配方</h2>
+              <div class="right"><span class="tag" id="params-domain-tag">in-domain</span></div>
+            </div>
+            <div class="panel-b">
+              <table style="width:100%; border-collapse:collapse" class="runs">
+                <tbody id="params-summary"></tbody>
+              </table>
+              <div style="margin-top:14px; font-size:12px; color:var(--ink-3); line-height:1.6">
+                <div class="sc" style="margin-bottom:6px">Notes</div>
+                参数将在切换到“预测结果”时自动应用。气体配比合计应为 100%，否则会进入外推区间。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ RESULTS VIEW ============ -->
+    <section class="view" id="view-results">
+      <div class="page">
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px">
+          <div>
+            <h1 class="title">预测结果</h1>
+            <div class="subtitle">基于当前工艺参数的刻蚀深度、平均速率、95% 置信区间与单变量扫描曲线</div>
+          </div>
+          <div style="display:flex; gap:8px">
+            <button class="btn" onclick="showView('params')">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 6H3M6 3 3 6l3 3"/></svg>
+              修改参数
+            </button>
+            <button class="btn primary" onclick="runPredict(true)">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 2v8l7-4z" fill="currentColor"/></svg>
+              重新预测
+            </button>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:20px">
+          <div class="panel">
+            <div class="panel-h">
+              <div class="label">Inputs snapshot</div>
+              <h2>本次预测输入</h2>
+              <div class="right"><span class="tag mono" id="snap-domain">in-domain</span><a href="#" onclick="showView('params');return false" class="sc" style="color:var(--accent); text-decoration:none; margin-left:10px">修改 →</a></div>
+            </div>
+            <div class="panel-b">
+              <div id="results-inputs" style="display:grid; grid-template-columns:repeat(8,1fr); gap:6px"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">
+              <div class="label">Prediction</div>
+              <h2>预测指标</h2>
+              <div class="right"><span class="tag" id="confidence-tag">backend pending</span></div>
+            </div>
+            <div class="panel-b">
+              <div class="kpis">
+                <div class="kpi accent">
+                  <div class="lbl">Etch depth&nbsp;·&nbsp;d̂</div>
+                  <div class="val"><span id="kpi-depth">—</span><small>nm</small></div>
+                  <div class="ci">95% CI&nbsp;<b id="kpi-depth-ci">—</b></div>
+                </div>
+                <div class="kpi">
+                  <div class="lbl">Avg. rate&nbsp;·&nbsp;r̂</div>
+                  <div class="val"><span id="kpi-rate">—</span><small>nm/min</small></div>
+                  <div class="ci">σ&nbsp;<b id="kpi-rate-sd">—</b></div>
+                </div>
+                <div class="kpi">
+                  <div class="lbl">Selectivity vs PR</div>
+                  <div class="val"><span id="kpi-sel">—</span><small>:1</small></div>
+                  <div class="ci">model&nbsp;<b>derived</b></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-h">
+              <div class="label">Sweep curve</div>
+              <h2>单变量预测曲线</h2>
+              <div class="right">
+                <div class="chart-tabs" id="sweep-tabs"></div>
+              </div>
+            </div>
+            <div class="panel-b chart-wrap">
+              <svg class="chart-svg" id="chart" viewBox="0 0 880 380" preserveAspectRatio="none"></svg>
+              <div class="chart-meta">
+                <span class="lg"><span class="sw"></span>预测均值</span>
+                <span class="lg"><span class="sw band"></span>95% 置信区间</span>
+                <span class="lg"><span class="sw dot"></span>当前工艺点</span>
+                <span style="margin-left:auto" id="sweep-info"></span>
+              </div>
+            </div>
+          <div class="panel">
+            <div class="panel-h">
+              <div class="label">Recent runs</div>
+              <h2>最近预测</h2>
+              <div class="right"><span class="sc">last 24h</span></div>
+            </div>
+            <div style="overflow:auto">
+              <table class="runs" style="width:100%; border-collapse:collapse">
+                <thead>
+                  <tr>
+                    <th>id</th><th>材料</th><th>P / W</th><th>深度</th><th>R²</th><th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td class="num">#7421</td><td>SiO₂</td><td class="num">10 Pa / 50 W</td><td class="num">100.6 nm</td><td class="num">0.87</td><td><span class="badge ok">in-domain</span></td></tr>
+                  <tr><td class="num">#7420</td><td>Si</td><td class="num">13 Pa / 100 W</td><td class="num">64.1 nm</td><td class="num">0.87</td><td><span class="badge ok">in-domain</span></td></tr>
+                  <tr><td class="num">#7419</td><td>SiN</td><td class="num">20 Pa / 50 W</td><td class="num">145.1 nm</td><td class="num">0.87</td><td><span class="badge warn">edge</span></td></tr>
+                  <tr><td class="num">#7418</td><td>SiO₂</td><td class="num">5 Pa / 10 W</td><td class="num">72.0 nm</td><td class="num">0.87</td><td><span class="badge ok">in-domain</span></td></tr>
+                  <tr><td class="num">#7417</td><td>Si</td><td class="num">35 Pa / 120 W</td><td class="num">—</td><td class="num">—</td><td><span class="badge err">out-of-range</span></td></tr>
+                  <tr><td class="num">#7416</td><td>SiN</td><td class="num">30 Pa / 100 W</td><td class="num">215.8 nm</td><td class="num">0.87</td><td><span class="badge ok">in-domain</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+/* ============================================================
+   PIML diagram: render the small network visualization
+   ============================================================ */
+(function drawNetVis(){
+  const host = document.getElementById('netvis');
+  if (!host) return;
+  const W=380, H=130;
+  const layers = [4, 6, 6, 2];
+  const xs = layers.map((_,i)=> 30 + i*((W-60)/(layers.length-1)));
+  const ys = layers.map(n => {
+    const a = []; const gap = (H-30)/(n+1);
+    for (let i=1; i<=n; i++) a.push(15 + gap*i);
+    return a;
+  });
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+  // edges
+  for (let i=0; i<layers.length-1; i++){
+    for (const y1 of ys[i]) for (const y2 of ys[i+1]){
+      s += `<line x1="${xs[i]}" y1="${y1}" x2="${xs[i+1]}" y2="${y2}" stroke="oklch(0.7 0.05 152)" stroke-width=".6" opacity=".55"/>`;
+    }
+  }
+  // nodes
+  for (let i=0; i<layers.length; i++){
+    const isOut = i===layers.length-1;
+    for (const y of ys[i]){
+      s += `<circle cx="${xs[i]}" cy="${y}" r="5.5" fill="${isOut?'oklch(0.55 0.13 300)':'oklch(0.62 0.10 152)'}" stroke="#fff" stroke-width="1.2"/>`;
+    }
+  }
+  // labels
+  s += `<text x="${xs[0]}" y="${H-3}" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--ink-3)">输入层</text>`;
+  s += `<text x="${(xs[1]+xs[2])/2}" y="${H-3}" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--ink-3)">隐藏层 · 全连接</text>`;
+  s += `<text x="${xs[xs.length-1]}" y="${H-3}" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--ink-3)">输出层</text>`;
+  // output labels
+  s += `<text x="${xs[3]+10}" y="${ys[3][0]+3}" font-family="IBM Plex Sans" font-size="9" fill="var(--ink-2)">D̂ (nm)</text>`;
+  s += `<text x="${xs[3]+10}" y="${ys[3][1]+3}" font-family="IBM Plex Sans" font-size="9" fill="var(--ink-2)">R̂ (nm/min)</text>`;
+  s += `</svg>`;
+  host.innerHTML = s;
+})();
+
+/* ============================================================
+   STATE  +  BACKEND PREDICTION
+   ============================================================ */
+const PARAM_DEFS = {
+  pressure: { label:'气压',          unit:'Pa',    min:5,   max:30,  step:0.5, v:10,
+              desc:'Chamber pressure', sweepLabel:'气压 (Pa)' },
+  power:    { label:'功率',          unit:'W',     min:10,  max:100, step:5,   v:50,
+              desc:'RF source power',  sweepLabel:'功率 (W)' },
+  ar:       { label:'Ar 流量比',     unit:'%',     min:10,  max:100, step:1,   v:50,
+              sweepLabel:'Ar 比例 (%)' },
+  o2:       { label:'O₂ 流量比',     unit:'%',     min:0,   max:90,  step:1,   v:10,
+              sweepLabel:'O₂ 比例 (%)' },
+  cf4:      { label:'CF₄ 流量比',    unit:'%',     min:0,   max:90,  step:1,   v:40,
+              sweepLabel:'CF₄ 比例 (%)' },
+  time:     { label:'刻蚀时间',      unit:'min',   min:2,   max:10,  step:0.5, v:5,
+              sweepLabel:'时间 (min)' },
+};
+const MATERIALS = ['Si','SiO2','SiN'];
+const POSITIONS = ['center','edge'];
+
+const state = {
+  ...Object.fromEntries(Object.entries(PARAM_DEFS).map(([k,d])=>[k,d.v])),
+  material: 'SiO2',
+  position: 'center',
+  sweepKey: 'pressure',
+};
+
+const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : location.origin;
+const apiCache = new Map();
+let apiOnline = false;
+let drawSeq = 0;
+
+function apiPayload(s){
+  return {
+    pressure: +s.pressure,
+    power: +s.power,
+    time: +s.time,
+    ar: +s.ar,
+    o2: +s.o2,
+    cf4: +s.cf4,
+    material: s.material,
+    position: s.position,
+  };
+}
+function cacheKey(s){
+  return JSON.stringify(apiPayload(s));
+}
+function setBackendStatus(ok){
+  apiOnline = ok;
+  const el = document.getElementById('backend-status');
+  if (!el) return;
+  el.textContent = ok ? 'backend online' : 'local fallback';
+  const dot = el.parentElement?.querySelector('.dot');
+  if (dot) dot.style.background = ok ? 'oklch(0.7 0.16 152)' : 'oklch(0.62 0.13 60)';
+}
+async function postJson(path, payload){
+  const res = await fetch(API_BASE + path, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+function normalizeApiPrediction(raw){
+  const lo = raw.depth_ci95?.[0] ?? raw.depth;
+  const hi = raw.depth_ci95?.[1] ?? raw.depth;
+  return {
+    rate: raw.rate,
+    depth: raw.depth,
+    ci95: Math.max(raw.depth - lo, hi - raw.depth, 0),
+    sigmaRate: raw.sigma_rate ?? 0,
+    sigmaDepth: Math.max(raw.depth - lo, hi - raw.depth, 0) / 1.96,
+    selectivity: raw.selectivity ?? 0,
+    ext: raw.domain?.extrapolation ?? 0,
+    inDomain: !!raw.domain?.in_domain,
+    backend: true,
+    raw,
+  };
+}
+async function getPrediction(s){
+  const key = cacheKey(s);
+  if (apiCache.has(key)) return apiCache.get(key);
+  try{
+    const raw = await postJson('/api/predict', apiPayload(s));
+    const p = normalizeApiPrediction(raw);
+    apiCache.set(key, p);
+    setBackendStatus(true);
+    return p;
+  }catch(e){
+    setBackendStatus(false);
+    return predict(s);
+  }
+}
+async function getSweep(key, n=80){
+  try{
+    const raw = await postJson('/api/sweep', {...apiPayload(state), key, n});
+    setBackendStatus(true);
+    return raw.points.map(d=>({
+      x:d.x,
+      depth:d.depth,
+      lo:d.lo,
+      hi:d.hi,
+      rate:d.rate,
+      inDomain:d.in_domain,
+    }));
+  }catch(e){
+    setBackendStatus(false);
+    return sweep(key, n);
+  }
+}
+
+/* Material-dependent base rate (nm/min @ ref conditions) */
+const MAT = {
+  Si:   { base: 4.8, kcf4: 0.9,  ko2: -0.6, kp: 0.040, kP: 0.0028 },
+  SiO2: { base: 6.2, kcf4: 1.4,  ko2:  0.2, kp: 0.045, kP: 0.0030 },
+  SiN:  { base: 5.4, kcf4: 1.1,  ko2: -0.2, kp: 0.038, kP: 0.0026 },
+};
+
+/** Local fallback predictor: returns rate (nm/min) when the API is unavailable. */
+function rateAt(s){
+  const m = MAT[s.material];
+  const ar = s.ar/100, o2 = s.o2/100, cf4 = s.cf4/100;
+  // gas chemistry term
+  const chem = m.kcf4*cf4*(1+0.4*ar) + m.ko2*o2 + 0.15*ar;
+  // pressure: weak peak around 5-8 Pa (sheath thickness vs flux trade-off)
+  const pNorm = (s.pressure - 6.5)/4;
+  const pTerm = m.kp * s.pressure * 7.5 * Math.exp(-0.18 * pNorm * pNorm);
+  // power: roughly linear with mild saturation
+  const PTerm = m.kP * s.power * (1 - 0.00015 * Math.max(0, s.power-700));
+  // position factor
+  const posFactor = s.position === 'edge' ? 0.92 : 1.00;
+  // composition penalty if total != 100
+  const total = s.ar + s.o2 + s.cf4;
+  const compPenalty = Math.max(0, 1 - Math.abs(total-100)/200);
+  let rate = (m.base*0.25 + chem*1.2 + pTerm + PTerm*4) * posFactor * compPenalty;
+  rate = Math.max(0.05, rate);
+  return rate;
+}
+/** depth(nm), rate(nm/min), CI half-width(nm) */
+function predict(s){
+  const r = rateAt(s);
+  const d = r * s.time;
+  // uncertainty grows with extrapolation distance from "in-domain" centroid
+  const ext =
+    Math.abs(s.pressure-6.5)/6.5 +
+    Math.abs(s.power-550)/450 +
+    Math.abs(s.ar+s.o2+s.cf4-100)/100 +
+    (s.position==='edge'?0.15:0);
+  const sigmaRate = r * (0.04 + 0.06*ext);
+  const sigmaDepth = sigmaRate * s.time;
+  const ci95 = 1.96 * sigmaDepth;
+  // selectivity vs photoresist (toy)
+  const sel = (MAT[s.material].base / 1.2) * (1 + 0.4*(s.cf4/100)) * (s.material==='Si'?0.9:1);
+  const inDomain = ext < 0.9;
+  return { rate:r, depth:d, ci95, sigmaRate, sigmaDepth, selectivity:sel, ext, inDomain, backend:false };
+}
+/** Sweep one variable across its range, hold others fixed */
+function sweep(key, n=60){
+  const def = PARAM_DEFS[key];
+  const out = [];
+  for (let i=0; i<n; i++){
+    const t = i/(n-1);
+    const v = def.min + (def.max-def.min)*t;
+    const s = {...state, [key]:v};
+    const p = predict(s);
+    out.push({ x:v, depth:p.depth, lo:p.depth-p.ci95, hi:p.depth+p.ci95 });
+  }
+  return out;
+}
+
+/* ============================================================
+   FORM
+   ============================================================ */
+function fmt(v, unit){
+  if (Math.abs(v) >= 100) return v.toFixed(0)+' '+unit;
+  if (Math.abs(v) >= 10)  return v.toFixed(1)+' '+unit;
+  return v.toFixed(2)+' '+unit;
+}
+function buildForm(){
+  const f = document.getElementById('form');
+  let html = '';
+  // sliders
+  for (const k of ['pressure','power','time']){
+    const d = PARAM_DEFS[k];
+    html += sliderHTML(k,d);
+  }
+  // gas mix
+  html += `
+    <div class="gas-mix">
+      <div class="head">
+        <div class="t">气体配比</div>
+        <div class="sum" id="gas-sum">合计 <b class="num" id="gas-total">100</b>%</div>
+      </div>
+      <div class="gas-bar" id="gas-bar"></div>
+      ${sliderHTML('ar',  PARAM_DEFS.ar,  '#3b82f6')}
+      ${sliderHTML('o2',  PARAM_DEFS.o2,  '#10b981')}
+      ${sliderHTML('cf4', PARAM_DEFS.cf4, '#f59e0b')}
+    </div>
+  `;
+  // material + position
+  html += `
+    <div class="row-2" style="margin-top:14px">
+      <div class="field" style="margin-bottom:0">
+        <div class="lbl"><span class="name">材料</span><span class="unit">material</span></div>
+        <div class="selectish" id="sel-material">
+          ${MATERIALS.map(m=>`<button data-v="${m}">${m.replace('2','₂')}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <div class="lbl"><span class="name">位置</span><span class="unit">position</span></div>
+        <div class="selectish" id="sel-position">
+          ${POSITIONS.map(p=>`<button data-v="${p}">${p==='center'?'中心':'边缘'}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  f.innerHTML = html;
+
+  // bind sliders
+  f.querySelectorAll('input[type=range]').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      state[inp.dataset.k] = +inp.value;
+      updateSliderUI(inp);
+      syncNumberInput(inp.dataset.k);
+      updateGasMix();
+      runPredict(false);
+    });
+    updateSliderUI(inp);
+  });
+  // bind number inputs
+  f.querySelectorAll('input.val[type=number]').forEach(inp=>{
+    const apply = (commit)=>{
+      const k = inp.dataset.k;
+      const d = PARAM_DEFS[k];
+      const raw = parseFloat(inp.value);
+      if (Number.isNaN(raw)){
+        inp.classList.add('bad');
+        return;
+      }
+      const clamped = Math.min(d.max, Math.max(d.min, raw));
+      const out = clamped;
+      const oob = (raw < d.min || raw > d.max);
+      inp.classList.toggle('bad', oob && !commit);
+      state[k] = out;
+      // sync slider
+      const range = document.querySelector(`input[type=range][data-k="${k}"]`);
+      if (range){ range.value = out; updateSliderUI(range); }
+      if (commit){
+        inp.value = (d.step<1)? out.toFixed(1) : out;
+        inp.classList.remove('bad');
+      }
+      updateGasMix();
+      runPredict(false);
+    };
+    inp.addEventListener('input', ()=>apply(false));
+    inp.addEventListener('change', ()=>apply(true));
+    inp.addEventListener('blur',   ()=>apply(true));
+    inp.addEventListener('keydown', e=>{
+      if (e.key==='Enter'){ apply(true); inp.blur(); }
+    });
+  });
+  // bind selectish
+  bindSelect('sel-material','material');
+  bindSelect('sel-position','position');
+  updateGasMix();
+}
+function sliderHTML(k, d, color){
+  const v = state[k];
+  return `
+    <div class="field" data-k="${k}">
+      <div class="lbl">
+        <span class="name">${d.label}</span>
+        <span style="display:flex; gap:6px; align-items:center">
+          <span class="unit">${d.unit}</span>
+          <input class="val num" type="number" id="val-${k}"
+                 data-k="${k}"
+                 min="${d.min}" max="${d.max}" step="${d.step}"
+                 value="${v}" />
+        </span>
+      </div>
+      <input type="range" data-k="${k}"
+             min="${d.min}" max="${d.max}" step="${d.step}" value="${v}"
+             style="${color?`--accent:${color};`:''}" />
+      <div class="ticks"><span class="num">${d.min}</span><span class="num">${d.max}</span></div>
+    </div>
+  `;
+}
+function updateSliderUI(inp){
+  const k = inp.dataset.k;
+  const d = PARAM_DEFS[k];
+  const p = ((+inp.value - d.min)/(d.max-d.min))*100;
+  inp.style.setProperty('--p', p+'%');
+}
+function syncNumberInput(k){
+  const d = PARAM_DEFS[k];
+  const el = document.getElementById('val-'+k);
+  if (!el) return;
+  if (document.activeElement === el) return; // don't fight the user
+  el.value = (d.step<1)? (+state[k]).toFixed(1) : state[k];
+  el.classList.remove('bad');
+}
+function bindSelect(id, key){
+  const root = document.getElementById(id);
+  const buttons = root.querySelectorAll('button');
+  buttons.forEach(b=>{
+    if (b.dataset.v === state[key]) b.classList.add('on');
+    b.addEventListener('click',()=>{
+      state[key] = b.dataset.v;
+      buttons.forEach(x=>x.classList.toggle('on', x===b));
+      runPredict(false);
+    });
+  });
+}
+function updateGasMix(){
+  const total = state.ar + state.o2 + state.cf4;
+  const sum = document.getElementById('gas-total');
+  const sumWrap = document.getElementById('gas-sum');
+  sum.textContent = total;
+  sumWrap.classList.toggle('bad', total !== 100);
+  // bar
+  const bar = document.getElementById('gas-bar');
+  const colors = ['#3b82f6','#10b981','#f59e0b'];
+  const vals = [state.ar, state.o2, state.cf4];
+  const norm = total>0 ? vals.map(v=>v/total*100) : [0,0,0];
+  bar.innerHTML = norm.map((v,i)=>`<div style="width:${v}%; background:${colors[i]}"></div>`).join('');
+}
+
+/* ============================================================
+   RESULT KPIs
+   ============================================================ */
+async function runPredict(){
+  const p = await getPrediction(state);
+  document.getElementById('kpi-depth').textContent = p.depth.toFixed(1);
+  document.getElementById('kpi-depth-ci').textContent =
+    `[${(p.depth-p.ci95).toFixed(1)}, ${(p.depth+p.ci95).toFixed(1)}]`;
+  document.getElementById('kpi-rate').textContent = p.rate.toFixed(2);
+  document.getElementById('kpi-rate-sd').textContent = `±${p.sigmaRate.toFixed(2)}`;
+  document.getElementById('kpi-sel').textContent = p.selectivity.toFixed(2);
+  const tag = document.getElementById('confidence-tag');
+  tag.textContent = (p.backend ? 'backend' : 'local') + ' · ' + (p.inDomain ? 'in-domain' : 'extrapolating');
+  tag.style.color = p.inDomain ? '' : 'oklch(0.5 0.16 25)';
+  const dtag = document.getElementById('params-domain-tag');
+  if (dtag){
+    dtag.textContent = p.inDomain ? 'in-domain' : 'extrapolating';
+    dtag.style.color = p.inDomain ? '' : 'oklch(0.5 0.16 25)';
+  }
+  updateParamsSummary();
+  updateResultsInputs();
+  const sd = document.getElementById('snap-domain');
+  if (sd){
+    sd.textContent = p.inDomain ? 'in-domain' : 'extrapolating';
+    sd.style.color = p.inDomain ? '' : 'oklch(0.5 0.16 25)';
+  }
+  drawChart();
+}
+
+function updateResultsInputs(){
+  const el = document.getElementById('results-inputs');
+  if (!el) return;
+  const tile = (lbl, val, unit) =>
+    `<div class="input-tile"><div class="lbl">${lbl}</div><div class="val">${val}${unit?`<small>${unit}</small>`:''}</div></div>`;
+  el.innerHTML = [
+    tile('气压',     (+state.pressure).toFixed(1), 'Pa'),
+    tile('功率',     state.power, 'W'),
+    tile('刻蚀时间', (+state.time).toFixed(1), 'min'),
+    tile('材料',     state.material.replace('2','₂'), ''),
+    tile('Ar',         state.ar,  '%'),
+    tile('O₂',         state.o2,  '%'),
+    tile('CF₄',        state.cf4, '%'),
+    tile('位置',     state.position==='center'?'中心':'边缘', ''),
+  ].join('');
+}
+
+function updateParamsSummary(){
+  const tb = document.getElementById('params-summary');
+  if (!tb) return;
+  const rows = [
+    ['气压',     (+state.pressure).toFixed(1)+' Pa'],
+    ['功率',     state.power+' W'],
+    ['Ar / O₂ / CF₄', `${state.ar} / ${state.o2} / ${state.cf4} %`],
+    ['刻蚀时间', (+state.time).toFixed(1)+' min'],
+    ['材料',     state.material.replace('2','₂')],
+    ['位置',     state.position==='center'?'中心':'边缘'],
+  ];
+  tb.innerHTML = rows.map(([k,v])=>`<tr><td style="width:42%; color:var(--ink-3)">${k}</td><td class="num">${v}</td></tr>`).join('');
+}
+
+/* ============================================================
+   CHART
+   ============================================================ */
+function buildSweepTabs(){
+  const tabs = document.getElementById('sweep-tabs');
+  tabs.innerHTML = '';
+  for (const k of ['pressure','power','ar','o2','cf4','time']){
+    const b = document.createElement('button');
+    b.textContent = PARAM_DEFS[k].label;
+    if (k===state.sweepKey) b.classList.add('on');
+    b.addEventListener('click',()=>{
+      state.sweepKey = k;
+      [...tabs.children].forEach(c=>c.classList.toggle('on', c===b));
+      drawChart();
+    });
+    tabs.appendChild(b);
+  }
+}
+async function drawChart(){
+  const seq = ++drawSeq;
+  const svg = document.getElementById('chart');
+  const W = 880, H = 380;
+  const m = { l:62, r:24, t:18, b:46 };
+  const iw = W - m.l - m.r;
+  const ih = H - m.t - m.b;
+
+  const k = state.sweepKey;
+  const def = PARAM_DEFS[k];
+  const data = await getSweep(k, 80);
+  const cur = await getPrediction(state);
+  if (seq !== drawSeq) return;
+
+  const xMin = def.min, xMax = def.max;
+  let yMin = Math.min(...data.map(d=>d.lo));
+  let yMax = Math.max(...data.map(d=>d.hi));
+  // pad
+  const yPad = (yMax-yMin)*0.12 || 1;
+  yMin = Math.max(0, yMin - yPad);
+  yMax = yMax + yPad;
+
+  const X = v => m.l + ((v-xMin)/(xMax-xMin))*iw;
+  const Y = v => m.t + (1-(v-yMin)/(yMax-yMin))*ih;
+
+  // axis ticks
+  const xTicks = niceTicks(xMin, xMax, 6);
+  const yTicks = niceTicks(yMin, yMax, 5);
+
+  let s = '';
+  // background
+  s += `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
+  s += `<rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="#fcfbf6"/>`;
+
+  // grid
+  for (const t of yTicks){
+    const y = Y(t);
+    s += `<line x1="${m.l}" x2="${m.l+iw}" y1="${y}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+    s += `<text x="${m.l-8}" y="${y+3}" text-anchor="end" font-family="IBM Plex Mono" font-size="10.5" fill="var(--ink-3)">${formatTick(t)}</text>`;
+  }
+  for (const t of xTicks){
+    const x = X(t);
+    s += `<line x1="${x}" x2="${x}" y1="${m.t}" y2="${m.t+ih}" stroke="var(--grid)" stroke-width="1"/>`;
+    s += `<text x="${x}" y="${m.t+ih+18}" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="var(--ink-3)">${formatTick(t)}</text>`;
+  }
+  // axis labels
+  s += `<text x="${m.l+iw/2}" y="${H-10}" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="var(--ink-2)">${def.sweepLabel}</text>`;
+  s += `<text transform="translate(16,${m.t+ih/2}) rotate(-90)" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="var(--ink-2)">刻蚀深度 (nm)</text>`;
+
+  // CI band
+  let band = '';
+  band += `M ${X(data[0].x)} ${Y(data[0].hi)} `;
+  for (let i=1; i<data.length; i++) band += `L ${X(data[i].x)} ${Y(data[i].hi)} `;
+  for (let i=data.length-1; i>=0; i--) band += `L ${X(data[i].x)} ${Y(data[i].lo)} `;
+  band += 'Z';
+  s += `<path d="${band}" fill="oklch(0.85 0.05 252 / .55)" stroke="none"/>`;
+
+  // mean line
+  let line = '';
+  data.forEach((d,i)=>{ line += (i?' L ':'M ') + X(d.x).toFixed(2) + ' ' + Y(d.depth).toFixed(2); });
+  s += `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+
+  // current operating point
+  const cx = X(state[k]);
+  const cy = Y(cur.depth);
+  // crosshair
+  s += `<line x1="${cx}" x2="${cx}" y1="${m.t}" y2="${m.t+ih}" stroke="var(--accent-3)" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>`;
+  s += `<line x1="${m.l}" x2="${m.l+iw}" y1="${cy}" y2="${cy}" stroke="var(--accent-3)" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>`;
+  // CI bar at current point
+  s += `<line x1="${cx}" x2="${cx}" y1="${Y(cur.depth-cur.ci95)}" y2="${Y(cur.depth+cur.ci95)}" stroke="var(--accent-3)" stroke-width="1.5" opacity=".8"/>`;
+  s += `<line x1="${cx-4}" x2="${cx+4}" y1="${Y(cur.depth+cur.ci95)}" y2="${Y(cur.depth+cur.ci95)}" stroke="var(--accent-3)" stroke-width="1.5"/>`;
+  s += `<line x1="${cx-4}" x2="${cx+4}" y1="${Y(cur.depth-cur.ci95)}" y2="${Y(cur.depth-cur.ci95)}" stroke="var(--accent-3)" stroke-width="1.5"/>`;
+  // dot
+  s += `<circle cx="${cx}" cy="${cy}" r="9" fill="oklch(0.62 0.13 60 / .18)"/>`;
+  s += `<circle cx="${cx}" cy="${cy}" r="5" fill="var(--accent-3)" stroke="#fff" stroke-width="2"/>`;
+  // label
+  const lblText = `当前: ${PARAM_DEFS[k].label}=${formatTick(state[k])}${PARAM_DEFS[k].unit}  ·  d̂=${cur.depth.toFixed(1)} nm`;
+  const lblX = Math.min(cx + 12, m.l+iw - 200);
+  const lblY = Math.max(cy - 14, m.t + 14);
+  s += `<rect x="${lblX-4}" y="${lblY-12}" width="${lblText.length*6.2}" height="18" rx="3" fill="#14171c"/>`;
+  s += `<text x="${lblX}" y="${lblY+1}" font-family="IBM Plex Mono" font-size="10.5" fill="#fff">${lblText}</text>`;
+
+  // axis frame
+  s += `<line x1="${m.l}" x2="${m.l+iw}" y1="${m.t+ih}" y2="${m.t+ih}" stroke="var(--ink-2)" stroke-width="1"/>`;
+  s += `<line x1="${m.l}" x2="${m.l}" y1="${m.t}" y2="${m.t+ih}" stroke="var(--ink-2)" stroke-width="1"/>`;
+
+  // hover targets (invisible)
+  const groupHov = data.map(d=>{
+    return `<g class="hov" data-x="${d.x.toFixed(3)}" data-d="${d.depth.toFixed(2)}" data-lo="${d.lo.toFixed(2)}" data-hi="${d.hi.toFixed(2)}">
+      <rect x="${X(d.x)-iw/data.length/2}" y="${m.t}" width="${iw/data.length}" height="${ih}" fill="transparent"/>
+    </g>`;
+  }).join('');
+  s += groupHov;
+
+  svg.innerHTML = s;
+
+  // hover tooltip
+  const tip = document.getElementById('tip');
+  svg.querySelectorAll('.hov').forEach(g=>{
+    g.addEventListener('mousemove', e=>{
+      tip.classList.add('on');
+      tip.innerHTML = `${def.label} <b>${formatTick(+g.dataset.x)}${def.unit}</b><br>d̂ = <b>${(+g.dataset.d).toFixed(1)} nm</b><br>95% CI [${(+g.dataset.lo).toFixed(1)}, ${(+g.dataset.hi).toFixed(1)}]`;
+      tip.style.left = e.clientX+'px';
+      tip.style.top  = e.clientY+'px';
+    });
+    g.addEventListener('mouseleave', ()=>tip.classList.remove('on'));
+  });
+
+  // sweep info
+  document.getElementById('sweep-info').textContent =
+    `n=${data.length} · 其他参数固定 · 材料=${state.material} · 位置=${state.position==='center'?'中心':'边缘'}`;
+}
+
+function niceTicks(min, max, n){
+  const span = max - min;
+  const step0 = span / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const norm = step0 / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+  const t = [];
+  const start = Math.ceil(min/step)*step;
+  for (let v=start; v<=max+1e-9; v+=step) t.push(+v.toFixed(10));
+  return t;
+}
+function formatTick(v){
+  if (Math.abs(v) >= 1000) return v.toFixed(0);
+  if (Math.abs(v) >= 100)  return v.toFixed(0);
+  if (Math.abs(v) >= 10)   return v.toFixed(0);
+  return (+v).toFixed(1);
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+function showView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='view-'+name));
+  document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.view===name));
+  const labels = {overview:'系统概览', params:'参数输入', results:'预测结果'};
+  document.getElementById('crumbs').innerHTML =
+    `<b>PIML-CCP</b> / ${labels[name]||name}`;
+  if (name==='results'){ updateResultsInputs(); drawChart(); }
+  if (name==='params') updateParamsSummary();
+}
+document.querySelectorAll('#nav a[data-view]').forEach(a=>{
+  a.addEventListener('click', ()=>showView(a.dataset.view));
+});
+
+/* ============================================================
+   PRESETS
+   ============================================================ */
+function loadRecipe(name){
+  if (name==='SiO2-Std'){
+    Object.assign(state, {
+      pressure:10, power:50, ar:50, o2:10, cf4:40,
+      time:5, material:'SiO2', position:'center'
+    });
+  }
+  buildForm(); runPredict();
+}
+function resetParams(){
+  Object.assign(state, Object.fromEntries(Object.entries(PARAM_DEFS).map(([k,d])=>[k,d.v])));
+  state.material='SiO2'; state.position='center';
+  buildForm(); runPredict();
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+buildForm();
+buildSweepTabs();
+runPredict();
+window.addEventListener('resize', drawChart);
+</script>
+
+</body>
+</html>

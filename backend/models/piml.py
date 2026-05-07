@@ -60,6 +60,8 @@ SAMPLE_WEIGHT_POWER = 0.0
 N_PERTURB = 96
 N_DOMAIN_PRES = 64  # extra synthetic pressure perturbation pairs over full domain
 
+CI_ALPHA = 0.05  # 95% prediction interval from per-material OOF residual quantiles
+
 NUM_RAW = ["pressure_Pa", "power_W", "time_min", "Ar_frac", "O2_frac", "CF4_frac", "electrode_gap_cm"]
 
 
@@ -549,6 +551,41 @@ def fit_final(bundle: dict, y: np.ndarray, raw_mean: np.ndarray, raw_std: np.nda
 
 
 # --------------------------------------------------------------------------- #
+# Prediction interval from OOF residuals
+# --------------------------------------------------------------------------- #
+
+def residual_quantiles_per_material(
+    y_true: np.ndarray, y_pred: np.ndarray, mat_idx: np.ndarray, alpha: float = CI_ALPHA,
+) -> dict[str, dict[str, float]]:
+    """Empirical residual quantiles per material, used to build prediction intervals
+    that do not require any change to the trained model."""
+    qs: dict[str, dict[str, float]] = {}
+    for i, m in enumerate(MATERIALS):
+        sel = mat_idx == i
+        if not sel.any():
+            continue
+        r = y_true[sel] - y_pred[sel]
+        lo, hi = np.quantile(r, [alpha / 2.0, 1.0 - alpha / 2.0])
+        qs[m] = {"q_lo": float(lo), "q_hi": float(hi), "n": int(sel.sum())}
+    return qs
+
+
+def apply_ci_band(
+    y_pred: np.ndarray, mat_idx: np.ndarray, qs: dict[str, dict[str, float]],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Add per-material residual quantile bands; clamp lower bound at 0 (rate ≥ 0)."""
+    lo = y_pred.copy().astype(float)
+    hi = y_pred.copy().astype(float)
+    for i, m in enumerate(MATERIALS):
+        sel = mat_idx == i
+        if not sel.any() or m not in qs:
+            continue
+        lo[sel] = y_pred[sel] + qs[m]["q_lo"]
+        hi[sel] = y_pred[sel] + qs[m]["q_hi"]
+    return np.clip(lo, 0.0, None), hi
+
+
+# --------------------------------------------------------------------------- #
 # Visualization
 # --------------------------------------------------------------------------- #
 
@@ -682,14 +719,23 @@ def _predict_curve(
     return y_phys.numpy(), y_nn.numpy(), (y_phys + y_nn).numpy()
 
 
+def _draw_ci_band(ax, xs: np.ndarray, y_total: np.ndarray, q: dict[str, float], color: str) -> None:
+    lo = np.clip(y_total + q["q_lo"], 0.0, None)
+    hi = y_total + q["q_hi"]
+    ax.fill_between(xs, lo, hi, color=color, alpha=0.15, linewidth=0)
+
+
 def plot_pressure_curve(model: PIML, bundle: dict, df: pd.DataFrame,
-                        raw_mean: np.ndarray, raw_std: np.ndarray, path: Path) -> None:
+                        raw_mean: np.ndarray, raw_std: np.ndarray, path: Path,
+                        ci_quantiles: dict[str, dict[str, float]] | None = None) -> None:
     xs = np.linspace(float(df["pressure_Pa"].min()), float(df["pressure_Pa"].max()), 120)
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     colors = {"Si": "#1f77b4", "SiO2": "#d62728", "SiN": "#2ca02c"}
     for m in MATERIALS:
         _, _, y_total = _predict_curve(model, bundle, df, raw_mean, raw_std,
                                        "pressure_Pa", xs, m)
+        if ci_quantiles and m in ci_quantiles:
+            _draw_ci_band(ax, xs, y_total, ci_quantiles[m], colors[m])
         ax.plot(xs, y_total, color=colors[m], lw=2.0, label=f"{m} (peak={P_PEAK[m]} Pa)")
         # actual scatter for this material
         sub = df[(df["substrate"] == m) & (df["CF4_frac"].fillna(0) > 0)]
@@ -698,7 +744,10 @@ def plot_pressure_curve(model: PIML, bundle: dict, df: pd.DataFrame,
         ax.axvline(P_PEAK[m], color=colors[m], lw=1, ls=":", alpha=0.6)
     ax.set_xlabel("Pressure (Pa)")
     ax.set_ylabel("Predicted etch_rate (nm/min)")
-    ax.set_title("Pressure → etch_rate (others at median; expected unimodal)")
+    title = "Pressure → etch_rate (others at median; expected unimodal)"
+    if ci_quantiles:
+        title += "  |  shaded = 95% PI"
+    ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -707,20 +756,26 @@ def plot_pressure_curve(model: PIML, bundle: dict, df: pd.DataFrame,
 
 
 def plot_power_curve(model: PIML, bundle: dict, df: pd.DataFrame,
-                     raw_mean: np.ndarray, raw_std: np.ndarray, path: Path) -> None:
+                     raw_mean: np.ndarray, raw_std: np.ndarray, path: Path,
+                     ci_quantiles: dict[str, dict[str, float]] | None = None) -> None:
     xs = np.linspace(float(df["power_W"].min()), float(df["power_W"].max()), 120)
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     colors = {"Si": "#1f77b4", "SiO2": "#d62728", "SiN": "#2ca02c"}
     for m in MATERIALS:
         _, _, y_total = _predict_curve(model, bundle, df, raw_mean, raw_std,
                                        "power_W", xs, m)
+        if ci_quantiles and m in ci_quantiles:
+            _draw_ci_band(ax, xs, y_total, ci_quantiles[m], colors[m])
         ax.plot(xs, y_total, color=colors[m], lw=2.0, label=m)
         sub = df[(df["substrate"] == m) & (df["CF4_frac"].fillna(0) > 0)]
         ax.scatter(sub["power_W"], sub[TARGET], s=12, alpha=0.30,
                    color=colors[m], edgecolors="none")
     ax.set_xlabel("Power (W)")
     ax.set_ylabel("Predicted etch_rate (nm/min)")
-    ax.set_title("Power → etch_rate (expected monotone increasing)")
+    title = "Power → etch_rate (expected monotone increasing)"
+    if ci_quantiles:
+        title += "  |  shaded = 95% PI"
+    ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -729,20 +784,26 @@ def plot_power_curve(model: PIML, bundle: dict, df: pd.DataFrame,
 
 
 def plot_cf4_curve(model: PIML, bundle: dict, df: pd.DataFrame,
-                   raw_mean: np.ndarray, raw_std: np.ndarray, path: Path) -> None:
+                   raw_mean: np.ndarray, raw_std: np.ndarray, path: Path,
+                   ci_quantiles: dict[str, dict[str, float]] | None = None) -> None:
     xs = np.linspace(0.0, float(df["CF4_frac"].max()), 120)
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     colors = {"Si": "#1f77b4", "SiO2": "#d62728", "SiN": "#2ca02c"}
     for m in MATERIALS:
         _, _, y_total = _predict_curve(model, bundle, df, raw_mean, raw_std,
                                        "CF4_frac", xs, m)
+        if ci_quantiles and m in ci_quantiles:
+            _draw_ci_band(ax, xs, y_total, ci_quantiles[m], colors[m])
         ax.plot(xs, y_total, color=colors[m], lw=2.0, label=m)
         sub = df[(df["substrate"] == m) & (df["CF4_frac"].fillna(0) > 0)]
         ax.scatter(sub["CF4_frac"], sub[TARGET], s=12, alpha=0.30,
                    color=colors[m], edgecolors="none")
     ax.set_xlabel("CF4 fraction")
     ax.set_ylabel("Predicted etch_rate (nm/min)")
-    ax.set_title("CF4 fraction → etch_rate (expected monotone increasing)")
+    title = "CF4 fraction → etch_rate (expected monotone increasing)"
+    if ci_quantiles:
+        title += "  |  shaded = 95% PI"
+    ax.set_title(title)
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -867,9 +928,23 @@ def run() -> None:
     print(f"[{MODEL_NAME}] OOF total: mae={overall['mae']:.3f} rmse={overall['rmse']:.3f} r2={overall['r2']:.3f}")
     print(f"[{MODEL_NAME}] OOF physics-only: mae={overall_phys['mae']:.3f} rmse={overall_phys['rmse']:.3f} r2={overall_phys['r2']:.3f}")
 
-    save_oof_csv(df, oof, MODEL_NAME, out)
+    # 95% prediction interval from per-material OOF residual quantiles.
+    # This is post-hoc — the trained model and `oof` predictions are unchanged.
+    ci_quantiles = residual_quantiles_per_material(y, oof, bundle["mat_idx"], alpha=CI_ALPHA)
+    oof_lo, oof_hi = apply_ci_band(oof, bundle["mat_idx"], ci_quantiles)
+    coverage = float(((y >= oof_lo) & (y <= oof_hi)).mean())
+    mean_width = float((oof_hi - oof_lo).mean())
+    print(f"[{MODEL_NAME}] 95% PI empirical coverage={coverage:.3f}  mean_width={mean_width:.3f} nm/min")
+    for m, q in ci_quantiles.items():
+        print(f"  {m}: q_lo={q['q_lo']:+.3f}  q_hi={q['q_hi']:+.3f}  n={q['n']}")
+
+    save_oof_csv(
+        df, oof, MODEL_NAME, out,
+        extra_cols={f"pred_{MODEL_NAME}_lo": oof_lo, f"pred_{MODEL_NAME}_hi": oof_hi},
+    )
     pd.DataFrame({"y_true": y, "y_phys": oof_phys, "y_nn": oof_nn,
-                  "y_total": oof, "substrate": df["substrate"].to_numpy()}).to_csv(
+                  "y_total": oof, "y_lo": oof_lo, "y_hi": oof_hi,
+                  "substrate": df["substrate"].to_numpy()}).to_csv(
         out / "oof_decomposition.csv", index=False, encoding="utf-8-sig")
 
     # figures
@@ -880,9 +955,9 @@ def run() -> None:
 
     # physics scans use the full-data fit
     full_model = fit_final(bundle, y, raw_mean, raw_std)
-    plot_pressure_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_pressure.png")
-    plot_power_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_power.png")
-    plot_cf4_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_cf4.png")
+    plot_pressure_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_pressure.png", ci_quantiles=ci_quantiles)
+    plot_power_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_power.png", ci_quantiles=ci_quantiles)
+    plot_cf4_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_cf4.png", ci_quantiles=ci_quantiles)
 
     save_metrics_json(out, {
         "model": MODEL_NAME,
@@ -907,6 +982,15 @@ def run() -> None:
         "overall_oof_physics_only": overall_phys,
         "energy_thresholds": E_TH,
         "physics_terms": ["R_chem", "R_ion_enhanced", "R_sputter", "R_passivation", "time_transient"],
+        "ci": {
+            "method": "per-material empirical quantiles of OOF residuals (post-hoc; model unchanged)",
+            "alpha": CI_ALPHA,
+            "level": 1.0 - CI_ALPHA,
+            "quantiles_per_material": ci_quantiles,
+            "empirical_coverage": coverage,
+            "mean_width_nm_per_min": mean_width,
+            "lower_clamped_at_zero": True,
+        },
     })
     print(f"saved to: {out}")
 
