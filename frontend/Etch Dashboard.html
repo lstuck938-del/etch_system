@@ -377,6 +377,18 @@
     display:flex; align-items:center; font-family:'IBM Plex Mono';
     font-size:18px; color:var(--ink-3);
   }
+  .piml .trainflow{
+    display:grid; gap:6px; margin-top:10px;
+  }
+  .piml .trainflow .step{
+    display:flex; align-items:flex-start; gap:8px;
+    padding:7px 9px; background:#fff; border:1px solid var(--line);
+    border-radius:6px; font-size:11px; color:var(--ink-2); line-height:1.4;
+  }
+  .piml .trainflow .k{
+    flex:none; font-family:'IBM Plex Mono'; font-size:10px; color:var(--ink-3);
+    min-width:38px; text-transform:uppercase;
+  }
   .piml .note{
     margin-top:6px; padding:10px 12px;
     background:oklch(0.985 0.012 252); border:1px solid oklch(0.88 0.03 252);
@@ -613,13 +625,13 @@
                   </div>
                   <div class="cst">
                     <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3 C 6 3, 8 14, 20 14"/></svg>
-                    <div class="nm">时间渐变约束</div>
-                    <div class="ds">深度单调，速率先升后降</div>
+                    <div class="nm">非负约束</div>
+                    <div class="ds">惩罚负刻蚀速率输出</div>
                   </div>
                   <div class="cst">
                     <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M11 2 L11 14 M5 14 L17 14 M5 8 L11 2 L17 8 M3 11 H7 M15 11 H19"/></svg>
-                    <div class="nm">量纲与范围</div>
-                    <div class="ds">输出在物理合理区间</div>
+                    <div class="nm">残差 NN 约束</div>
+                    <div class="ds">限制残差修正幅度</div>
                   </div>
                   <div class="cst">
                     <svg class="ic" width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="3" width="7" height="5" rx="1"/><rect x="13" y="3" width="7" height="5" rx="1"/><rect x="2" y="10" width="7" height="3" rx="1"/><rect x="13" y="10" width="7" height="3" rx="1"/></svg>
@@ -651,11 +663,11 @@
                 <div class="blk train">
                   <div class="t">Training · 模型训练</div>
                   <div class="h">最小化总损失，更新模型参数</div>
-                  <div class="d">Adam optimizer · MC-dropout 不确定度估计 · 95% 置信区间输出</div>
-                  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px">
-                    <span class="tag">epoch 4,800</span>
-                    <span class="tag">lr 1e-3 → 1e-4</span>
-                    <span class="tag">batch 64</span>
+                  <div class="d">Adam optimizer · 物理约束联合优化 · 95% 置信区间输出</div>
+                  <div class="trainflow">
+                    <div class="step"><span class="k">PRE</span><span>物理骨架预训练，先拟合基础刻蚀速率</span></div>
+                    <div class="step"><span class="k">FIT</span><span>数据损失与物理软约束共同反向传播</span></div>
+                    <div class="step"><span class="k">CAL</span><span>OOF 残差校准预测区间，限制负速率</span></div>
                   </div>
                 </div>
               </div>
@@ -892,7 +904,7 @@ const state = {
   sweepKey: 'pressure',
 };
 
-const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : location.origin;
+const API_BASE = location.port === '8000' ? location.origin : 'http://127.0.0.1:8000';
 const apiCache = new Map();
 let apiOnline = false;
 let drawSeq = 0;
