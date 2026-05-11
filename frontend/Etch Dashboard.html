@@ -894,6 +894,7 @@ const PARAM_DEFS = {
   time:     { label:'刻蚀时间',      unit:'min',   min:2,   max:10,  step:0.5, v:5,
               sweepLabel:'时间 (min)' },
 };
+const GAS_KEYS = ['ar','o2','cf4'];
 const MATERIALS = ['Si','SiO2','SiN'];
 const POSITIONS = ['center','edge'];
 
@@ -904,10 +905,12 @@ const state = {
   sweepKey: 'pressure',
 };
 
-const API_BASE = location.port === '8000' ? location.origin : 'http://127.0.0.1:8000';
+const API_BASE = location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:8000';
 const apiCache = new Map();
 let apiOnline = false;
 let drawSeq = 0;
+let gasPrimaryKey = null;
+let gasSecondaryKey = null;
 
 function apiPayload(s){
   return {
@@ -1147,9 +1150,13 @@ function buildForm(){
   // bind sliders
   f.querySelectorAll('input[type=range]').forEach(inp=>{
     inp.addEventListener('input', ()=>{
-      state[inp.dataset.k] = +inp.value;
-      updateSliderUI(inp);
-      syncNumberInput(inp.dataset.k);
+      const k = inp.dataset.k;
+      state[k] = +inp.value;
+      if (GAS_KEYS.includes(k)){
+        applyGasEdit(k);
+      }else{
+        syncParamControls(k);
+      }
       updateGasMix();
       runPredict(false);
     });
@@ -1170,11 +1177,13 @@ function buildForm(){
       const oob = (raw < d.min || raw > d.max);
       inp.classList.toggle('bad', oob && !commit);
       state[k] = out;
-      // sync slider
-      const range = document.querySelector(`input[type=range][data-k="${k}"]`);
-      if (range){ range.value = out; updateSliderUI(range); }
+      if (GAS_KEYS.includes(k)){
+        applyGasEdit(k);
+      }else{
+        syncParamControls(k);
+      }
       if (commit){
-        inp.value = (d.step<1)? out.toFixed(1) : out;
+        inp.value = formatParamValue(k);
         inp.classList.remove('bad');
       }
       updateGasMix();
@@ -1219,13 +1228,93 @@ function updateSliderUI(inp){
   const p = ((+inp.value - d.min)/(d.max-d.min))*100;
   inp.style.setProperty('--p', p+'%');
 }
+function formatParamValue(k){
+  const d = PARAM_DEFS[k];
+  return (d.step<1)? (+state[k]).toFixed(1) : Math.round(+state[k]);
+}
+function clampParam(k, value){
+  const d = PARAM_DEFS[k];
+  return Math.min(d.max, Math.max(d.min, +value));
+}
+function syncParamControls(k){
+  const range = document.querySelector(`input[type=range][data-k="${k}"]`);
+  if (range){ range.value = state[k]; updateSliderUI(range); }
+  syncNumberInput(k);
+}
+function syncGasControls(){
+  GAS_KEYS.forEach(syncParamControls);
+}
 function syncNumberInput(k){
   const d = PARAM_DEFS[k];
   const el = document.getElementById('val-'+k);
   if (!el) return;
   if (document.activeElement === el) return; // don't fight the user
-  el.value = (d.step<1)? (+state[k]).toFixed(1) : state[k];
+  el.value = formatParamValue(k);
   el.classList.remove('bad');
+}
+function distributeGasRemainder(keys, total){
+  if (!keys.length) return;
+  if (keys.length === 1){
+    state[keys[0]] = clampParam(keys[0], total);
+    return;
+  }
+
+  let vals = Object.fromEntries(keys.map(k=>[k, clampParam(k, state[k])]));
+  let current = keys.reduce((sum,k)=>sum + vals[k], 0);
+  if (current > 0){
+    keys.forEach(k=>{ vals[k] = vals[k] / current * total; });
+  }else{
+    keys.forEach(k=>{ vals[k] = total / keys.length; });
+  }
+
+  for (let i=0; i<6; i++){
+    keys.forEach(k=>{ vals[k] = clampParam(k, vals[k]); });
+    const diff = total - keys.reduce((sum,k)=>sum + vals[k], 0);
+    if (Math.abs(diff) < 1e-6) break;
+    const movable = keys.filter(k=>{
+      const d = PARAM_DEFS[k];
+      return diff > 0 ? vals[k] < d.max - 1e-6 : vals[k] > d.min + 1e-6;
+    });
+    if (!movable.length) break;
+    movable.forEach(k=>{ vals[k] += diff / movable.length; });
+  }
+
+  keys.forEach(k=>{ state[k] = Math.round(vals[k]); });
+  let diff = Math.round(total) - keys.reduce((sum,k)=>sum + state[k], 0);
+  while (diff !== 0){
+    const k = keys.find(name=>{
+      const d = PARAM_DEFS[name];
+      return diff > 0 ? state[name] < d.max : state[name] > d.min;
+    });
+    if (!k) break;
+    state[k] += diff > 0 ? 1 : -1;
+    diff += diff > 0 ? -1 : 1;
+  }
+}
+function applyGasEdit(changedKey){
+  if (!gasPrimaryKey){
+    gasPrimaryKey = changedKey;
+  }else if (changedKey !== gasPrimaryKey){
+    gasSecondaryKey = changedKey;
+  }
+
+  const locked = [];
+  if (changedKey === gasPrimaryKey){
+    if (gasSecondaryKey) locked.push(gasSecondaryKey);
+  }else if (gasPrimaryKey){
+    locked.push(gasPrimaryKey);
+  }
+  const free = GAS_KEYS.filter(k=>k!==changedKey && !locked.includes(k));
+  const lockedSum = locked.reduce((sum,k)=>sum + state[k], 0);
+  const freeMin = free.reduce((sum,k)=>sum + PARAM_DEFS[k].min, 0);
+  const freeMax = free.reduce((sum,k)=>sum + PARAM_DEFS[k].max, 0);
+  const d = PARAM_DEFS[changedKey];
+  const lo = Math.max(d.min, 100 - lockedSum - freeMax);
+  const hi = Math.min(d.max, 100 - lockedSum - freeMin);
+
+  state[changedKey] = Math.round(Math.min(hi, Math.max(lo, state[changedKey])));
+  distributeGasRemainder(free, 100 - lockedSum - state[changedKey]);
+  syncGasControls();
 }
 function bindSelect(id, key){
   const root = document.getElementById(id);
