@@ -204,6 +204,26 @@
     margin-top:-2px;
   }
   .row-2{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .form-grid-top{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:20px;
+    margin-bottom:18px;
+  }
+  .form-grid-bot{
+    display:grid; grid-template-columns:2fr 1fr; gap:20px;
+  }
+  .form-grid-bot .gas-sliders{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:16px;
+  }
+  .form-grid-bot .gas-sliders .field{ margin-bottom:0 }
+  @media (max-width:1100px){
+    .form-grid-top{ grid-template-columns:1fr 1fr }
+    .form-grid-bot{ grid-template-columns:1fr }
+    .form-grid-bot .gas-sliders{ grid-template-columns:1fr 1fr }
+  }
+  @media (max-width:760px){
+    .form-grid-top{ grid-template-columns:1fr }
+    .form-grid-bot .gas-sliders{ grid-template-columns:1fr }
+  }
   .selectish{
     display:flex; gap:0; border:1px solid var(--line-2); border-radius:6px; overflow:hidden;
     background:#fff;
@@ -248,7 +268,7 @@
   .btn.primary:hover{filter:brightness(1.05)}
 
   /* result cards */
-  .kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:12px}
+  .kpis{display:grid; grid-template-columns:repeat(2,1fr); gap:12px}
   .kpi{
     background:#fff; border:1px solid var(--line); border-radius:8px;
     padding:14px 14px;
@@ -466,6 +486,181 @@
   /* small caps utility */
   .sc{font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.14em; color:var(--ink-3); text-transform:uppercase}
 
+  /* ============ PREDICTING / BUSY STATE ============ */
+  @keyframes piml-spin { to { transform: rotate(360deg); } }
+  @keyframes piml-pulse { 0%,100%{opacity:.55} 50%{opacity:1} }
+  @keyframes piml-shimmer {
+    0%{ background-position: -200% 0 }
+    100%{ background-position: 200% 0 }
+  }
+  @keyframes piml-bar {
+    0%   { left:-35%; width:35% }
+    50%  { left:30%;  width:45% }
+    100% { left:100%; width:35% }
+  }
+  @keyframes piml-flow {
+    0%   { stroke-dashoffset: 0 }
+    100% { stroke-dashoffset: -24 }
+  }
+
+  /* button busy state */
+  .btn.busy{
+    pointer-events:none; opacity:.85;
+    background:var(--accent); color:#fff; border-color:var(--accent);
+  }
+  .btn .spinner{
+    width:12px; height:12px; border-radius:50%;
+    border:1.6px solid rgba(255,255,255,.4);
+    border-top-color:#fff;
+    animation: piml-spin .7s linear infinite;
+    flex:none;
+  }
+  .btn-label{ display:inline-flex; align-items:center; gap:8px }
+  .btn.busy .label-idle{ display:none !important }
+  .btn:not(.busy) .label-busy{ display:none !important }
+
+  /* small inline status pill near KPIs */
+  .predict-status{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:4px 10px; border-radius:999px;
+    font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.04em;
+    background:#fff; border:1px solid var(--line-2); color:var(--ink-3);
+    transition: background .2s, color .2s, border-color .2s;
+  }
+  .predict-status .dot{
+    width:7px; height:7px; border-radius:50%;
+    background:var(--accent-2);
+    box-shadow:0 0 0 3px oklch(0.7 0.16 152 / .18);
+  }
+  .predict-status.busy{
+    background:oklch(0.985 0.012 252);
+    border-color:oklch(0.85 0.05 252);
+    color:var(--accent);
+  }
+  .predict-status.busy .dot{
+    background:var(--accent);
+    box-shadow:0 0 0 3px oklch(0.52 0.13 252 / .22);
+    animation: piml-pulse 1.05s ease-in-out infinite;
+  }
+  .predict-status .mini-spin{
+    display:none;
+    width:11px; height:11px; border-radius:50%;
+    border:1.6px solid oklch(0.52 0.13 252 / .25);
+    border-top-color: var(--accent);
+    animation: piml-spin .8s linear infinite;
+    flex:none;
+  }
+  .predict-status.busy .mini-spin{ display:inline-block }
+  .predict-status.busy .dot{ display:none }
+
+  /* progress bar inside panel header */
+  .progress-bar{
+    position:absolute; left:0; right:0; bottom:-1px; height:2px;
+    overflow:hidden; pointer-events:none;
+    opacity:0; transition:opacity .2s;
+  }
+  .panel-h{ position:relative }
+  .panel.is-busy .progress-bar{ opacity:1 }
+  .progress-bar::before{
+    content:''; position:absolute; top:0; bottom:0;
+    background: linear-gradient(90deg,
+      transparent, var(--accent), oklch(0.62 0.13 60), transparent);
+    animation: piml-bar 1.15s cubic-bezier(.5,.05,.5,.95) infinite;
+  }
+
+  /* KPI shimmer placeholders while predicting */
+  .kpi.is-loading .val,
+  .kpi.is-loading .ci b{
+    color: transparent;
+    background:linear-gradient(90deg,
+      #ece9dd 0%, #f7f5ee 30%, #ece9dd 60%);
+    background-size: 200% 100%;
+    animation: piml-shimmer 1.4s linear infinite;
+    border-radius:4px;
+    display:inline-block;
+    min-width:64px;
+  }
+  .kpi.is-loading .ci b{ min-width:90px }
+  .kpi.is-loading small{ opacity:.35 }
+
+  /* chart overlay during predict */
+  .chart-wrap{ position:relative }
+  .chart-overlay{
+    position:absolute; inset:0;
+    display:none;
+    align-items:center; justify-content:center;
+    flex-direction:column; gap:14px;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,.55), rgba(255,255,255,.85));
+    backdrop-filter: blur(1.5px);
+    -webkit-backdrop-filter: blur(1.5px);
+    border-radius:8px;
+    z-index:3;
+  }
+  .chart-wrap.is-busy .chart-overlay{ display:flex }
+  .chart-overlay .ring{
+    position:relative; width:54px; height:54px;
+  }
+  .chart-overlay .ring svg{ width:100%; height:100%; display:block }
+  .chart-overlay .ring .track{
+    fill:none; stroke:oklch(0.88 0.03 252); stroke-width:3.5;
+  }
+  .chart-overlay .ring .arc{
+    fill:none; stroke:var(--accent); stroke-width:3.5; stroke-linecap:round;
+    stroke-dasharray: 60 200;
+    transform-origin:center;
+    animation: piml-spin 1s linear infinite;
+  }
+  .chart-overlay .ring .pulse{
+    position:absolute; inset:0; border-radius:50%;
+    border:2px solid var(--accent); opacity:0;
+    animation: piml-pulse 1.4s ease-in-out infinite;
+  }
+  .chart-overlay .ctext{
+    text-align:center; font-family:'IBM Plex Mono'; font-size:11px;
+    color:var(--ink-2); letter-spacing:.04em; line-height:1.6;
+  }
+  .chart-overlay .ctext b{
+    color:var(--accent); font-weight:600;
+  }
+  .chart-overlay .ctext .steps{
+    margin-top:4px; color:var(--ink-3); font-size:10.5px;
+    letter-spacing:.08em; text-transform:uppercase;
+  }
+  .chart-overlay .ctext .steps span{
+    display:inline-block; opacity:.4;
+    transition: opacity .2s;
+  }
+  .chart-overlay .ctext .steps span.on{ opacity:1; color:var(--accent) }
+  .chart-overlay .ctext .steps em{
+    font-style:normal; margin:0 6px; color:var(--line-2);
+  }
+
+  /* mini network flow indicator (matches PIML diagram) */
+  .chart-overlay .flow{
+    display:flex; align-items:center; gap:10px;
+    font-family:'IBM Plex Mono'; font-size:10.5px;
+    color:var(--ink-3); letter-spacing:.06em; text-transform:uppercase;
+  }
+  .chart-overlay .flow .node{
+    width:9px; height:9px; border-radius:50%;
+    background:#fff; border:1.6px solid var(--accent);
+  }
+  .chart-overlay .flow .node.solid{ background:var(--accent) }
+  .chart-overlay .flow .ln{
+    width:24px; height:1.5px; background:var(--line-2);
+    position:relative; overflow:hidden;
+  }
+  .chart-overlay .flow .ln::after{
+    content:''; position:absolute; left:0; top:0; bottom:0; width:40%;
+    background:var(--accent);
+    animation: piml-flow-x 1s linear infinite;
+  }
+  @keyframes piml-flow-x{
+    0%{ transform: translateX(-100%) }
+    100%{ transform: translateX(250%) }
+  }
+
   /* equation */
   .eqn{
     font-family:'IBM Plex Mono'; font-size:12px; color:var(--ink-2);
@@ -538,19 +733,19 @@
 
         <div class="ov-grid">
           <div class="stat">
-            <div class="lbl">Training samples</div>
+            <div class="lbl">训练样本数</div>
             <div class="val">996</div>
           </div>
           <div class="stat">
-            <div class="lbl">OOF R²&nbsp;·&nbsp;Etch rate</div>
+            <div class="lbl">R²&nbsp;·&nbsp;刻蚀速率</div>
             <div class="val">0.873</div>
           </div>
           <div class="stat">
-            <div class="lbl">MAE&nbsp;·&nbsp;Rate</div>
+            <div class="lbl">平均绝对误差&nbsp;·&nbsp;速率</div>
             <div class="val">3.43 <small>nm/min</small></div>
           </div>
           <div class="stat">
-            <div class="lbl">RMSE&nbsp;·&nbsp;Rate</div>
+            <div class="lbl">均方根误差&nbsp;·&nbsp;速率</div>
             <div class="val">5.22 <small>nm/min</small></div>
           </div>
         </div>
@@ -692,37 +887,27 @@
           </div>
           <div style="display:flex; gap:8px">
             <button class="btn" onclick="resetParams()">重置</button>
-            <button class="btn primary" onclick="runPredict(true); showView('results')">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 2v8l7-4z" fill="currentColor"/></svg>
-              运行预测
+            <button class="btn primary" id="btn-run" onclick="runPredictManual(true)">
+              <span class="label-idle btn-label">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 2v8l7-4z" fill="currentColor"/></svg>
+                运行预测
+              </span>
+              <span class="label-busy btn-label">
+                <span class="spinner"></span>
+                预测中…
+              </span>
             </button>
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:minmax(0,460px) 1fr; gap:20px; align-items:start">
+        <div style="display:grid; grid-template-columns:1fr; gap:20px; align-items:start">
           <div class="panel">
             <div class="panel-h">
               <div class="label">Inputs</div>
               <h2>工艺参数</h2>
-            </div>
-            <div class="panel-b" id="form"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-h">
-              <div class="label">Summary</div>
-              <h2>当前配方</h2>
               <div class="right"><span class="tag" id="params-domain-tag">in-domain</span></div>
             </div>
-            <div class="panel-b">
-              <table style="width:100%; border-collapse:collapse" class="runs">
-                <tbody id="params-summary"></tbody>
-              </table>
-              <div style="margin-top:14px; font-size:12px; color:var(--ink-3); line-height:1.6">
-                <div class="sc" style="margin-bottom:6px">Notes</div>
-                参数将在切换到“预测结果”时自动应用。气体配比合计应为 100%，否则会进入外推区间。
-              </div>
-            </div>
+            <div class="panel-b" id="form"></div>
           </div>
         </div>
       </div>
@@ -741,9 +926,15 @@
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 6H3M6 3 3 6l3 3"/></svg>
               修改参数
             </button>
-            <button class="btn primary" onclick="runPredict(true)">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 2v8l7-4z" fill="currentColor"/></svg>
-              重新预测
+            <button class="btn primary" id="btn-rerun" onclick="runPredictManual(true)">
+              <span class="label-idle btn-label">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 2v8l7-4z" fill="currentColor"/></svg>
+                重新预测
+              </span>
+              <span class="label-busy btn-label">
+                <span class="spinner"></span>
+                预测中…
+              </span>
             </button>
           </div>
         </div>
@@ -764,24 +955,27 @@
             <div class="panel-h">
               <div class="label">Prediction</div>
               <h2>预测指标</h2>
-              <div class="right"><span class="tag" id="confidence-tag">backend pending</span></div>
+              <div class="right">
+                <span class="predict-status" id="predict-status">
+                  <span class="dot"></span>
+                  <span class="mini-spin"></span>
+                  <span id="predict-status-text">就绪</span>
+                </span>
+                <span class="tag" id="confidence-tag">backend pending</span>
+              </div>
+              <div class="progress-bar"></div>
             </div>
             <div class="panel-b">
               <div class="kpis">
                 <div class="kpi accent">
-                  <div class="lbl">Etch depth&nbsp;·&nbsp;d̂</div>
+                  <div class="lbl">刻蚀深度&nbsp;·&nbsp;d̂</div>
                   <div class="val"><span id="kpi-depth">—</span><small>nm</small></div>
-                  <div class="ci">95% CI&nbsp;<b id="kpi-depth-ci">—</b></div>
+                  <div class="ci">95% 置信区间&nbsp;<b id="kpi-depth-ci">—</b></div>
                 </div>
                 <div class="kpi">
-                  <div class="lbl">Avg. rate&nbsp;·&nbsp;r̂</div>
+                  <div class="lbl">平均速率&nbsp;·&nbsp;r̂</div>
                   <div class="val"><span id="kpi-rate">—</span><small>nm/min</small></div>
-                  <div class="ci">σ&nbsp;<b id="kpi-rate-sd">—</b></div>
-                </div>
-                <div class="kpi">
-                  <div class="lbl">Selectivity vs PR</div>
-                  <div class="val"><span id="kpi-sel">—</span><small>:1</small></div>
-                  <div class="ci">model&nbsp;<b>derived</b></div>
+                  <div class="ci">标准差&nbsp;<b id="kpi-rate-sd">—</b></div>
                 </div>
               </div>
             </div>
@@ -797,6 +991,33 @@
             </div>
             <div class="panel-b chart-wrap">
               <svg class="chart-svg" id="chart" viewBox="0 0 880 380" preserveAspectRatio="none"></svg>
+              <div class="chart-overlay" id="chart-overlay">
+                <div class="ring">
+                  <svg viewBox="0 0 50 50">
+                    <circle class="track" cx="25" cy="25" r="20"/>
+                    <circle class="arc"   cx="25" cy="25" r="20"/>
+                  </svg>
+                  <div class="pulse"></div>
+                </div>
+                <div class="flow">
+                  <span class="node solid"></span>
+                  <span class="ln"></span>
+                  <span class="node"></span>
+                  <span class="ln"></span>
+                  <span class="node"></span>
+                  <span class="ln"></span>
+                  <span class="node solid"></span>
+                </div>
+                <div class="ctext">
+                  <div><b>PIML 模型推理中…</b></div>
+                  <div class="steps" id="overlay-steps">
+                    <span class="on" data-st="0">编码输入</span><em>·</em>
+                    <span data-st="1">前向传播</span><em>·</em>
+                    <span data-st="2">物理约束</span><em>·</em>
+                    <span data-st="3">置信区间</span>
+                  </div>
+                </div>
+              </div>
               <div class="chart-meta">
                 <span class="lg"><span class="sw"></span>预测均值</span>
                 <span class="lg"><span class="sw band"></span>95% 置信区间</span>
@@ -1110,12 +1331,15 @@ function fmt(v, unit){
 function buildForm(){
   const f = document.getElementById('form');
   let html = '';
-  // sliders
+  // top row: 3 main sliders side-by-side
+  html += `<div class="form-grid-top">`;
   for (const k of ['pressure','power','time']){
     const d = PARAM_DEFS[k];
     html += sliderHTML(k,d);
   }
-  // gas mix
+  html += `</div>`;
+  // bottom row: gas mix (wider) + material/position stack
+  html += `<div class="form-grid-bot">`;
   html += `
     <div class="gas-mix">
       <div class="head">
@@ -1123,15 +1347,16 @@ function buildForm(){
         <div class="sum" id="gas-sum">合计 <b class="num" id="gas-total">100</b>%</div>
       </div>
       <div class="gas-bar" id="gas-bar"></div>
-      ${sliderHTML('ar',  PARAM_DEFS.ar,  '#3b82f6')}
-      ${sliderHTML('o2',  PARAM_DEFS.o2,  '#10b981')}
-      ${sliderHTML('cf4', PARAM_DEFS.cf4, '#f59e0b')}
+      <div class="gas-sliders">
+        ${sliderHTML('ar',  PARAM_DEFS.ar,  '#3b82f6')}
+        ${sliderHTML('o2',  PARAM_DEFS.o2,  '#10b981')}
+        ${sliderHTML('cf4', PARAM_DEFS.cf4, '#f59e0b')}
+      </div>
     </div>
   `;
-  // material + position
   html += `
-    <div class="row-2" style="margin-top:14px">
-      <div class="field" style="margin-bottom:0">
+    <div class="form-side">
+      <div class="field" style="margin-bottom:14px">
         <div class="lbl"><span class="name">材料</span><span class="unit">material</span></div>
         <div class="selectish" id="sel-material">
           ${MATERIALS.map(m=>`<button data-v="${m}">${m.replace('2','₂')}</button>`).join('')}
@@ -1145,6 +1370,7 @@ function buildForm(){
       </div>
     </div>
   `;
+  html += `</div>`;
   f.innerHTML = html;
 
   // bind sliders
@@ -1345,6 +1571,80 @@ function updateGasMix(){
 /* ============================================================
    RESULT KPIs
    ============================================================ */
+let predictBusyDepth = 0;
+let overlayStepTimer = null;
+
+function setPredictBusy(on, opts){
+  opts = opts || {};
+  if (on){
+    predictBusyDepth++;
+  }else{
+    predictBusyDepth = Math.max(0, predictBusyDepth - 1);
+  }
+  const busy = predictBusyDepth > 0;
+
+  // status pill
+  const ps = document.getElementById('predict-status');
+  const pt = document.getElementById('predict-status-text');
+  if (ps){
+    ps.classList.toggle('busy', busy);
+    if (pt) pt.textContent = busy ? '预测中…' : '就绪';
+  }
+  // panel header progress bar
+  const panel = ps ? ps.closest('.panel') : null;
+  if (panel) panel.classList.toggle('is-busy', busy);
+
+  // chart overlay
+  const cw = document.querySelector('.chart-wrap');
+  if (cw) cw.classList.toggle('is-busy', busy);
+
+  // KPI shimmer (only when fully fresh — manual rerun)
+  if (opts.shimmerKpi !== undefined){
+    document.querySelectorAll('.kpi').forEach(k=>k.classList.toggle('is-loading', opts.shimmerKpi && busy));
+  }else if (!busy){
+    document.querySelectorAll('.kpi').forEach(k=>k.classList.remove('is-loading'));
+  }
+
+  // buttons busy
+  ['btn-run','btn-rerun'].forEach(id=>{
+    const b = document.getElementById(id);
+    if (b) b.classList.toggle('busy', busy);
+  });
+
+  // overlay step cycling
+  if (busy && !overlayStepTimer){
+    let idx = 0;
+    const cycle = ()=>{
+      const els = document.querySelectorAll('#overlay-steps span[data-st]');
+      els.forEach((el,i)=> el.classList.toggle('on', i === idx % els.length));
+      idx++;
+    };
+    cycle();
+    overlayStepTimer = setInterval(cycle, 320);
+  }
+  if (!busy && overlayStepTimer){
+    clearInterval(overlayStepTimer);
+    overlayStepTimer = null;
+    const els = document.querySelectorAll('#overlay-steps span[data-st]');
+    els.forEach((el,i)=> el.classList.toggle('on', i===0));
+  }
+}
+
+// Run prediction with a guaranteed-visible busy state (used by the
+// "Run / Re-run" buttons so the user always sees the indicator even
+// when the local fallback returns in <1ms or the cache is warm).
+async function runPredictManual(showResults){
+  setPredictBusy(true, {shimmerKpi:true});
+  // ensure user actually perceives the predicting state
+  const minDelay = new Promise(r=>setTimeout(r, 650));
+  try{
+    await Promise.all([runPredict(), minDelay]);
+  }finally{
+    setPredictBusy(false, {shimmerKpi:true});
+  }
+  if (showResults) showView('results');
+}
+
 async function runPredict(){
   const p = await getPrediction(state);
   document.getElementById('kpi-depth').textContent = p.depth.toFixed(1);
@@ -1352,7 +1652,6 @@ async function runPredict(){
     `[${(p.depth-p.ci95).toFixed(1)}, ${(p.depth+p.ci95).toFixed(1)}]`;
   document.getElementById('kpi-rate').textContent = p.rate.toFixed(2);
   document.getElementById('kpi-rate-sd').textContent = `±${p.sigmaRate.toFixed(2)}`;
-  document.getElementById('kpi-sel').textContent = p.selectivity.toFixed(2);
   const tag = document.getElementById('confidence-tag');
   tag.textContent = (p.backend ? 'residual uncertainty' : 'local') + ' · ' + (p.inDomain ? 'in-domain' : 'extrapolating');
   tag.style.color = p.inDomain ? '' : 'oklch(0.5 0.16 25)';
@@ -1368,7 +1667,7 @@ async function runPredict(){
     sd.textContent = p.inDomain ? 'in-domain' : 'extrapolating';
     sd.style.color = p.inDomain ? '' : 'oklch(0.5 0.16 25)';
   }
-  drawChart();
+  await drawChart();
 }
 
 function updateResultsInputs(){
@@ -1520,7 +1819,7 @@ async function drawChart(){
   svg.querySelectorAll('.hov').forEach(g=>{
     g.addEventListener('mousemove', e=>{
       tip.classList.add('on');
-      tip.innerHTML = `${def.label} <b>${formatTick(+g.dataset.x)}${def.unit}</b><br>d̂ = <b>${(+g.dataset.d).toFixed(1)} nm</b><br>95% CI [${(+g.dataset.lo).toFixed(1)}, ${(+g.dataset.hi).toFixed(1)}]`;
+      tip.innerHTML = `${def.label} <b>${formatTick(+g.dataset.x)}${def.unit}</b><br>d̂ = <b>${(+g.dataset.d).toFixed(1)} nm</b><br>95% 置信区间 [${(+g.dataset.lo).toFixed(1)}, ${(+g.dataset.hi).toFixed(1)}]`;
       tip.style.left = e.clientX+'px';
       tip.style.top  = e.clientY+'px';
     });
