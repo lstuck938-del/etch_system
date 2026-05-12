@@ -668,6 +668,67 @@
     padding:10px 12px; line-height:1.7;
   }
   .eqn .var{color:var(--accent)}
+
+  /* ============ MECHANISM EXPLAINER ============ */
+  .mech{
+    margin-top:14px;
+    border:1px solid var(--line); border-radius:8px;
+    background:#fff;
+    overflow:hidden;
+  }
+  .mech[hidden]{ display:none }
+  .mech-head{
+    padding:11px 14px;
+    background:#faf9f4;
+    border-bottom:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    flex-wrap:wrap;
+  }
+  .mech-title{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:'IBM Plex Sans'; font-weight:600; font-size:13px; color:var(--ink);
+  }
+  .mech-title svg{ color:var(--accent) }
+  .mech-strip{
+    display:inline-flex; gap:4px; flex-wrap:wrap;
+  }
+  .mech-strip .step{
+    font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:.04em;
+    padding:3px 9px; border-radius:999px;
+    background:#fff; border:1px solid var(--line-2); color:var(--ink-3);
+    transition: all .18s ease;
+  }
+  .mech-strip .step.on{
+    background:var(--accent); border-color:var(--accent); color:#fff;
+    box-shadow:0 1px 3px oklch(0.52 0.13 252 / .25);
+  }
+  .mech-body{ padding:14px 16px }
+  .mech-active{
+    display:flex; gap:12px; align-items:flex-start;
+    line-height:1.6;
+  }
+  .zone{
+    flex:none;
+    display:inline-flex; align-items:center; gap:6px;
+    padding:3px 10px; border-radius:999px;
+    font-family:'IBM Plex Sans'; font-weight:600; font-size:12px;
+    letter-spacing:.01em;
+  }
+  .zone::before{
+    content:''; width:6px; height:6px; border-radius:50%; background:currentColor;
+  }
+  .zone-text{
+    color:var(--ink-2); font-size:12.5px; line-height:1.65;
+  }
+  .zone.z1{ color:oklch(0.5 0.13 252);  background:oklch(0.95 0.04 252) }
+  .zone.z2{ color:oklch(0.45 0.13 152); background:oklch(0.94 0.05 152) }
+  .zone.z3{ color:oklch(0.5 0.14 60);   background:oklch(0.94 0.06 80)  }
+  .zone.z4{ color:oklch(0.5 0.14 35);   background:oklch(0.94 0.05 35)  }
+  .zone.z5{ color:oklch(0.45 0.16 25);  background:oklch(0.94 0.05 25)  }
+  .zone.zpwr{ color:oklch(0.5 0.13 252); background:oklch(0.95 0.04 252) }
+  @media (max-width:680px){
+    .mech-active{ flex-direction:column; gap:8px }
+  }
 </style>
 </head>
 <body>
@@ -1023,6 +1084,22 @@
                 <span class="lg"><span class="sw band"></span>95% 置信区间</span>
                 <span class="lg"><span class="sw dot"></span>当前工艺点</span>
                 <span style="margin-left:auto" id="sweep-info"></span>
+              </div>
+
+              <div class="mech" id="mech-explainer" hidden>
+                <div class="mech-head">
+                  <div class="mech-title">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M7 4v3l2 1.5"/></svg>
+                    <span id="mech-title-text">机制解释</span>
+                  </div>
+                  <div class="mech-strip" id="mech-strip"></div>
+                </div>
+                <div class="mech-body">
+                  <div class="mech-active">
+                    <span class="zone" id="mech-pill"></span>
+                    <span class="zone-text" id="mech-text"></span>
+                  </div>
+                </div>
               </div>
             </div>
           <div class="panel">
@@ -1829,6 +1906,88 @@ async function drawChart(){
   // sweep info
   document.getElementById('sweep-info').textContent =
     `n=${data.length} · 其他参数固定 · 材料=${state.material} · 位置=${state.position==='center'?'中心':'边缘'}`;
+
+  // mechanism explainer — context-dependent, only for pressure & power sweeps
+  updateMechExplainer(k, data, state[k]);
+}
+
+/* ============================================================
+   MECHANISM EXPLAINER
+   ============================================================ */
+const MECH_PRESSURE_ZONES = [
+  { id:'z1', name:'低气压区', text:'活性粒子供应不足，刻蚀受自由基 / 离子生成限制。' },
+  { id:'z2', name:'上升区',   text:'气压升高促进气体解离，活性基团与离子通量增加，刻蚀增强。' },
+  { id:'z3', name:'峰值区',   text:'活性基团供应与离子能量达到平衡，刻蚀深度接近最优。' },
+  { id:'z4', name:'下降区',   text:'离子平均自由程缩短，入射能量降低，刻蚀开始减弱。' },
+  { id:'z5', name:'高气压区', text:'离子能量严重衰减，难以有效去除材料或钝化层，刻蚀效率降低。' },
+];
+const MECH_POWER = {
+  id:'zpwr',
+  name:'功率提升',
+  text:'功率升高会提高电子能量和等离子体密度，增强气体解离、活性自由基生成、离子通量和离子轰击能量，因此会促进化学反应刻蚀和离子辅助去除，使刻蚀深度增加。',
+};
+
+function findPeakIndex(data){
+  let bi = 0, bv = -Infinity;
+  for (let i=0; i<data.length; i++){
+    if (data[i].depth > bv){ bv = data[i].depth; bi = i; }
+  }
+  return bi;
+}
+function classifyPressureZone(data, curX){
+  if (!data.length) return 0;
+  const peakIdx = findPeakIndex(data);
+  const xPeak = data[peakIdx].x;
+  const xMin = data[0].x;
+  const xMax = data[data.length-1].x;
+  const leftSpan  = Math.max(1e-6, xPeak - xMin);
+  const rightSpan = Math.max(1e-6, xMax - xPeak);
+
+  // distance from peak, normalized to that side's span
+  if (curX <= xPeak){
+    const d = (xPeak - curX) / leftSpan;       // 0 at peak, 1 at far-low
+    if (d <= 0.18) return 2;                   // peak
+    if (d <= 0.55) return 1;                   // rising
+    return 0;                                  // low
+  } else {
+    const d = (curX - xPeak) / rightSpan;      // 0 at peak, 1 at far-high
+    if (d <= 0.18) return 2;                   // peak
+    if (d <= 0.55) return 3;                   // descending
+    return 4;                                  // high
+  }
+}
+function renderMechStrip(zones, activeIdx){
+  return zones.map((z,i)=>
+    `<span class="step ${i===activeIdx?'on':''}">${z.name}</span>`
+  ).join('');
+}
+function updateMechExplainer(sweepKey, data, curX){
+  const root  = document.getElementById('mech-explainer');
+  const title = document.getElementById('mech-title-text');
+  const pill  = document.getElementById('mech-pill');
+  const text  = document.getElementById('mech-text');
+  const strip = document.getElementById('mech-strip');
+  if (!root) return;
+
+  if (sweepKey === 'pressure'){
+    const i = classifyPressureZone(data, curX);
+    const z = MECH_PRESSURE_ZONES[i];
+    title.textContent = '气压扫描 · 机制解释';
+    pill.className = 'zone ' + z.id;
+    pill.textContent = z.name;
+    text.textContent = z.text;
+    strip.innerHTML = renderMechStrip(MECH_PRESSURE_ZONES, i);
+    root.hidden = false;
+  } else if (sweepKey === 'power'){
+    title.textContent = '功率扫描 · 机制解释';
+    pill.className = 'zone ' + MECH_POWER.id;
+    pill.textContent = MECH_POWER.name;
+    text.textContent = MECH_POWER.text;
+    strip.innerHTML = '';
+    root.hidden = false;
+  } else {
+    root.hidden = true;
+  }
 }
 
 function niceTicks(min, max, n){
