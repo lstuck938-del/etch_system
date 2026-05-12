@@ -254,11 +254,13 @@ def make_tensors(df: pd.DataFrame) -> dict:
 
     # categorical (photoresist, position) one-hot
     cat_pieces = []
+    cat_cols: list[str] = []
     for c in ["photoresist", "position"]:
         if c in df.columns:
             s = df[c].astype(str).fillna("unknown")
-            d = pd.get_dummies(s, prefix=c, dtype=float).to_numpy()
-            cat_pieces.append(d)
+            d = pd.get_dummies(s, prefix=c, dtype=float)
+            cat_cols.extend(d.columns.tolist())
+            cat_pieces.append(d.to_numpy())
     if cat_pieces:
         raw = np.concatenate([raw] + cat_pieces, axis=1)
 
@@ -268,6 +270,7 @@ def make_tensors(df: pd.DataFrame) -> dict:
         "sample_weight": weight,
         "raw": raw,
         "raw_cols": raw_cols,
+        "cat_cols": cat_cols,
     }
 
 
@@ -955,6 +958,26 @@ def run() -> None:
 
     # physics scans use the full-data fit
     full_model = fit_final(bundle, y, raw_mean, raw_std)
+
+    # Save a reloadable checkpoint so the API can serve PIML predictions
+    # directly instead of falling back to KNN over the training table.
+    n_num = len(bundle["raw_cols"])
+    cat_means = bundle["raw"][:, n_num:].mean(axis=0) if bundle["raw"].shape[1] > n_num else np.zeros(0)
+    torch.save({
+        "model_state": full_model.state_dict(),
+        "raw_mean": np.asarray(raw_mean, dtype=float),
+        "raw_std": np.asarray(raw_std, dtype=float),
+        "raw_cols": list(bundle["raw_cols"]),
+        "cat_cols": list(bundle["cat_cols"]),
+        "cat_means": np.asarray(cat_means, dtype=float),
+        "materials": list(MATERIALS),
+        "hidden": list(HIDDEN),
+        "n_mat": len(MATERIALS),
+        "raw_dim": int(bundle["raw"].shape[1]),
+        "ci_quantiles": ci_quantiles,
+    }, out / "model.pt")
+    print(f"saved checkpoint: {out / 'model.pt'}")
+
     plot_pressure_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_pressure.png", ci_quantiles=ci_quantiles)
     plot_power_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_power.png", ci_quantiles=ci_quantiles)
     plot_cf4_curve(full_model, bundle, df, raw_mean, raw_std, fig_dir / "scan_cf4.png", ci_quantiles=ci_quantiles)

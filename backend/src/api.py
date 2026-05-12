@@ -38,6 +38,7 @@ NUMERIC = ["pressure_Pa", "power_W", "time_min", "Ar_frac", "O2_frac", "CF4_frac
 MATERIALS = ["Si", "SiO2", "SiN"]
 POSITIONS = ["center", "edge"]
 OOF_PATH = OUTPUT_ROOT / MODEL_NAME / "oof.csv"
+CHECKPOINT_PATH = OUTPUT_ROOT / MODEL_NAME / "model.pt"
 
 
 def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
@@ -93,6 +94,92 @@ def _recipe_feature(recipe: dict[str, Any], pred_rate: float) -> np.ndarray:
         "position": recipe["position"],
     }])
     return _feature_matrix(row, np.array([pred_rate], dtype=float))
+
+
+@lru_cache(maxsize=1)
+def piml_model_state() -> dict[str, Any] | None:
+    """Load the saved PIML checkpoint and rebuild the model for inference.
+
+    Returns None if no checkpoint is present, which lets predict_recipe fall
+    back to the KNN estimator over the training table.
+    """
+    if not CHECKPOINT_PATH.exists():
+        return None
+
+    import torch  # local import keeps API startup cheap when checkpoint absent
+
+    backend_root = Path(__file__).resolve().parent.parent
+    if str(backend_root) not in sys.path:
+        sys.path.insert(0, str(backend_root))
+    from models.piml import PIML
+
+    ckpt = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=False)
+    model = PIML(
+        raw_dim=int(ckpt["raw_dim"]),
+        n_mat=int(ckpt["n_mat"]),
+        hidden=tuple(ckpt["hidden"]),
+    )
+    model.load_state_dict(ckpt["model_state"])
+    model.eval()
+    return {
+        "torch": torch,
+        "model": model,
+        "raw_mean": np.asarray(ckpt["raw_mean"], dtype=float),
+        "raw_std": np.asarray(ckpt["raw_std"], dtype=float),
+        "raw_cols": list(ckpt["raw_cols"]),
+        "cat_cols": list(ckpt["cat_cols"]),
+        "cat_means": np.asarray(ckpt["cat_means"], dtype=float),
+        "materials": list(ckpt["materials"]),
+        "raw_dim": int(ckpt["raw_dim"]),
+    }
+
+
+def _build_piml_raw(ps: dict[str, Any], recipe: dict[str, Any]) -> np.ndarray:
+    """Reconstruct one raw input row in the exact column order PIML trained on.
+
+    Recipe fields not exposed by the frontend (e.g. electrode_gap_cm, photoresist)
+    fall back to the training-set mean so the model still runs end-to-end.
+    """
+    raw = np.zeros(ps["raw_dim"], dtype=float)
+    n_num = len(ps["raw_cols"])
+    for i, c in enumerate(ps["raw_cols"]):
+        if c in recipe:
+            raw[i] = float(recipe[c])
+        else:
+            raw[i] = float(ps["raw_mean"][i])
+    if ps["raw_dim"] > n_num:
+        raw[n_num:] = ps["cat_means"]
+        for j, name in enumerate(ps["cat_cols"]):
+            if name.startswith("position_"):
+                level = name[len("position_"):]
+                raw[n_num + j] = 1.0 if level == recipe["position"] else 0.0
+    return raw
+
+
+def _piml_predict_rate(recipe: dict[str, Any]) -> float | None:
+    ps = piml_model_state()
+    if ps is None:
+        return None
+    torch = ps["torch"]
+
+    raw = _build_piml_raw(ps, recipe)
+    std_safe = np.where(ps["raw_std"] > 0, ps["raw_std"], 1.0)
+    raw_n = ((raw - ps["raw_mean"]) / std_safe).astype(np.float32)
+
+    raw_t = torch.from_numpy(raw_n[None, :])
+    P = torch.tensor([float(recipe["pressure_Pa"])], dtype=torch.float32)
+    W = torch.tensor([float(recipe["power_W"])], dtype=torch.float32)
+    Ar = torch.tensor([float(recipe["Ar_frac"])], dtype=torch.float32)
+    O2 = torch.tensor([float(recipe["O2_frac"])], dtype=torch.float32)
+    CF4 = torch.tensor([float(recipe["CF4_frac"])], dtype=torch.float32)
+    T = torch.tensor([float(recipe["time_min"])], dtype=torch.float32)
+    mat_idx = ps["materials"].index(recipe["substrate"]) if recipe["substrate"] in ps["materials"] else 0
+    M = torch.tensor([mat_idx], dtype=torch.long)
+
+    with torch.no_grad():
+        y_phys, y_nn = ps["model"](raw_t, P, W, Ar, O2, CF4, T, M)
+        rate = float((y_phys + y_nn).item())
+    return max(rate, 0.0)
 
 
 def _fit_residual_uncertainty_model(df: pd.DataFrame) -> dict[str, Any]:
@@ -297,8 +384,14 @@ def predict_recipe(recipe: dict[str, Any], k: int = 24) -> dict[str, Any]:
     k = min(k, len(d))
     idx = np.argpartition(d, k - 1)[:k]
     local_d = d[idx]
-    weights = 1.0 / np.square(local_d + 0.12)
-    rate = float(np.average(state["y"][idx], weights=weights))
+    piml_rate = _piml_predict_rate(recipe)
+    if piml_rate is not None:
+        rate = piml_rate
+        method = "piml-checkpoint"
+    else:
+        weights = 1.0 / np.square(local_d + 0.12)
+        rate = float(np.average(state["y"][idx], weights=weights))
+        method = "knn-fallback"
 
     time_min = max(0.0, float(recipe["time_min"]))
     depth = rate * time_min
@@ -320,7 +413,7 @@ def predict_recipe(recipe: dict[str, Any], k: int = 24) -> dict[str, Any]:
 
     return {
         "model": MODEL_NAME,
-        "method": "backend-data-calibrated-nearest-neighbors",
+        "method": method,
         "input": recipe,
         "rate": rate,
         "rate_unit": "nm/min",
