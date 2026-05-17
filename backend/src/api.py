@@ -18,7 +18,6 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
 
 try:
     from .config import OUTPUT_ROOT, TARGET
@@ -207,6 +206,24 @@ def _fit_residual_uncertainty_model(df: pd.DataFrame) -> dict[str, Any]:
     pred = train[pred_col].astype(float).to_numpy()
     residual = train[TARGET].astype(float).to_numpy() - pred
     abs_residual = np.abs(residual)
+    mean_abs = float(abs_residual.mean())
+    by_material = {
+        m: float(abs_residual[train["substrate"].to_numpy() == m].mean())
+        for m in MATERIALS
+        if (train["substrate"].to_numpy() == m).any()
+    }
+
+    try:
+        from sklearn.ensemble import RandomForestRegressor
+    except ModuleNotFoundError:
+        return {
+            "available": False,
+            "reason": "scikit-learn is not installed; using mean residual fallback",
+            "mean_abs_residual": mean_abs,
+            "mean_abs_residual_by_material": by_material,
+            "n_rows": int(len(train)),
+            "target": "log1p(abs(y_true - pred_piml_oof))",
+        }
 
     x = _feature_matrix(train, pred)
     y = np.log1p(abs_residual)
@@ -222,12 +239,6 @@ def _fit_residual_uncertainty_model(df: pd.DataFrame) -> dict[str, Any]:
     pred_abs = np.clip(pred_abs, 1e-6, None)
     normalized_error = abs_residual / pred_abs
     q95 = float(np.quantile(normalized_error, 0.95))
-    mean_abs = float(abs_residual.mean())
-    by_material = {
-        m: float(abs_residual[train["substrate"].to_numpy() == m].mean())
-        for m in MATERIALS
-        if (train["substrate"].to_numpy() == m).any()
-    }
     return {
         "available": True,
         "model": model,
@@ -374,7 +385,7 @@ def _residual_interval(recipe: dict[str, Any], rate: float, domain: dict[str, An
         "predicted_abs_residual": fallback_abs,
         "calibration_q95": 1.96,
         "rate_half_width": half_width,
-        "n_rows": 0,
+        "n_rows": int(uncertainty.get("n_rows", 0)),
     }
 
 

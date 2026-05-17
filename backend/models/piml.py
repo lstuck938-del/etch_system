@@ -24,13 +24,6 @@ if str(ROOT) not in sys.path:
 
 from src.config import FEATURES, NUMERIC, RANDOM_SEED, TARGET
 from src.data import load_long, make_groups
-from src.evaluate import (
-    cv_split,
-    output_dir,
-    regression_metrics,
-    save_metrics_json,
-    save_oof_csv,
-)
 
 MODEL_NAME = "piml"
 DEVICE = torch.device("cpu")
@@ -892,6 +885,14 @@ def plot_loss_curves(histories: list[dict], path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 def run() -> None:
+    from src.evaluate import (
+        cv_split,
+        output_dir,
+        regression_metrics,
+        save_metrics_json,
+        save_oof_csv,
+    )
+
     np.random.seed(RANDOM_SEED)
     out = output_dir(MODEL_NAME)
     fig_dir = out / "figures"

@@ -1203,7 +1203,16 @@ const state = {
   sweepKey: 'pressure',
 };
 
-const API_BASE = location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:8000';
+function resolveApiBase(){
+  const fallback = 'http://127.0.0.1:8000';
+  if (!location.protocol.startsWith('http')) return fallback;
+  if (location.port === '8000' || location.port === '8001') return location.origin;
+  const host = (location.hostname === 'localhost' || location.hostname === '')
+    ? '127.0.0.1'
+    : location.hostname;
+  return `${location.protocol}//${host}:8000`;
+}
+const API_BASE = resolveApiBase();
 const apiCache = new Map();
 let apiOnline = false;
 let drawSeq = 0;
