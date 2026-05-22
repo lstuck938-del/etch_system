@@ -31,7 +31,7 @@ except ImportError:  # Allows: python backend/src/api.py
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_HTML = PROJECT_ROOT / "frontend" / "Etch Dashboard.html"
+FRONTEND_HTML = PROJECT_ROOT / "index.html"
 MODEL_NAME = "piml"
 NUMERIC = ["pressure_Pa", "power_W", "time_min", "Ar_frac", "O2_frac", "CF4_frac"]
 MATERIALS = ["Si", "SiO2", "SiN"]
@@ -536,6 +536,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             if parsed.path in {"/", "/index.html"}:
+                if not FRONTEND_HTML.exists():
+                    self._json(500, {"error": f"Frontend entry not found: {FRONTEND_HTML}"})
+                    return
                 self._send(200, FRONTEND_HTML.read_bytes(), "text/html; charset=utf-8")
             elif parsed.path == "/api/health":
                 self._json(200, {"ok": True, "service": "etch-piml-api"})
